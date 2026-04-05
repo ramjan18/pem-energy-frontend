@@ -60,10 +60,20 @@ const apiService = {
   loadUsers: async () => {
     try {
       const response = await authAPI.getAllUsers();
-      return response.users || [];
+      return response.data || response.users || [];
     } catch (error) {
       console.error('Error loading users:', error);
       return [];
+    }
+  },
+
+  createUser: async (userData) => {
+    try {
+      const response = await authAPI.register(userData);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
     }
   },
 
@@ -802,6 +812,136 @@ function LiveDashboardTab({ records }) {
 }
 
 // ─────────────────────────────────────────────
+//  USERS TAB
+// ─────────────────────────────────────────────
+function UsersTab() {
+  const [users, setUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [usersError, setUsersError] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState('recorder');
+  const [department, setDepartment] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [submitSuccess, setSubmitSuccess] = useState('');
+
+  const loadUsers = async () => {
+    setLoadingUsers(true);
+    setUsersError('');
+    try {
+      const data = await apiService.loadUsers();
+      setUsers(data);
+    } catch (error) {
+      setUsersError('Unable to load users: ' + (error.message || 'Unknown error'));
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const resetForm = () => {
+    setUsername('');
+    setEmail('');
+    setPassword('');
+    setRole('recorder');
+    setDepartment('');
+    setSubmitError('');
+    setSubmitSuccess('');
+  };
+
+  const handleCreateUser = async () => {
+    setSubmitError('');
+    setSubmitSuccess('');
+
+    if (!username.trim() || !email.trim() || !password) {
+      setSubmitError('Username, email, and password are required.');
+      return;
+    }
+
+    try {
+      await apiService.createUser({
+        username: username.trim(),
+        email: email.trim(),
+        password,
+        role,
+        department: department.trim() || undefined,
+      });
+      setSubmitSuccess('User created successfully.');
+      resetForm();
+      loadUsers();
+      setModalOpen(false);
+    } catch (error) {
+      setSubmitError(error.message || 'Failed to create user.');
+    }
+  };
+
+  return (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>User Management</div>
+          <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>Create and review manager or recorder accounts</div>
+        </div>
+        <Btn variant="primary" onClick={() => { resetForm(); setModalOpen(true); }} style={{ minWidth: 160 }}>+ Create New User</Btn>
+      </div>
+
+      {usersError && <Alert message={usersError} type="error" />}
+
+      {loadingUsers ? (
+        <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>Loading users...</div>
+      ) : (
+        <DataTable headers={['Username', 'Email', 'Role',  'Status']} emptyMessage="No users found.">
+          {users.map(u => (
+            <tr key={u._id || u.id || u.username}>
+              <td style={tdStyle}>{u.username || '—'}</td>
+              <td style={tdStyle}>{u.email || '—'}</td>
+              <td style={tdStyle}>{u.role || 'recorder'}</td>
+              {/* <td style={tdStyle}>{u.department || '—'}</td> */}
+              <td style={tdStyle}>{u.isActive === false ? 'Inactive' : 'Active'}</td>
+            </tr>
+          ))}
+        </DataTable>
+      )}
+
+      {modalOpen && (
+        <Modal title="Create New User" subtitle="Add a recorder or manager account" onClose={() => setModalOpen(false)}>
+          {submitError && <Alert message={submitError} type="error" />}
+          {submitSuccess && <Alert message={submitSuccess} type="success" />}
+
+          <FormField label="Username">
+            <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="e.g. arif.kazi" />
+          </FormField>
+          <FormField label="Email Address">
+            <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="e.g. user@example.com" />
+          </FormField>
+          <FormField label="Password">
+            <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="Choose a secure password" />
+          </FormField>
+          <FormField label="Role">
+            <Select value={role} onChange={e => setRole(e.target.value)}>
+              <option value="recorder">Recorder</option>
+              <option value="manager">Manager</option>
+            </Select>
+          </FormField>
+          {/* <FormField label="Department (optional)">
+            <Input value={department} onChange={e => setDepartment(e.target.value)} placeholder="e.g. SAPL" />
+          </FormField> */}
+          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <Btn variant="secondary" onClick={() => setModalOpen(false)} style={{ flex: 1 }}>Cancel</Btn>
+            <Btn onClick={handleCreateUser} style={{ flex: 1 }}>Create User</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 //  EXPORT TAB
 // ─────────────────────────────────────────────
 // ─── Bill generation (API-based authorization) ───────────────
@@ -1018,6 +1158,7 @@ const TABS = [
   { id: 'records', label: '📋 Records' },
   { id: 'deleted', label: '🗑️ Deleted' },
   { id: 'live',    label: '📊 Live Dashboard' },
+  { id: 'users',   label: '👥 Users' },
   { id: 'export',  label: '📥 Export' },
 ];
 
@@ -1091,6 +1232,7 @@ export default function ManagerDashboard({ user, onLogout }) {
               {activeTab === 'records' && <RecordsTab records={records} onRecordsChange={loadRecords} />}
               {activeTab === 'deleted' && <DeletedTab />}
               {activeTab === 'live'    && <LiveDashboardTab records={records} />}
+              {activeTab === 'users'   && <UsersTab />}
               {activeTab === 'export'  && <ExportTab records={records} />}
             </>
           )}
