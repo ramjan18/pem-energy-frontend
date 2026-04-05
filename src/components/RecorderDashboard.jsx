@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { storage, KEYS, COOLDOWN_MS, SECTIONS } from '../storage';
+import { useState, useEffect } from 'react';
+import { meterAPI, readingAPI } from '../api';
 import { TopHeader, Alert, FormField, Input, Btn } from './UI';
 
 const SECTION_CONFIG = {
@@ -10,64 +10,95 @@ const SECTION_CONFIG = {
 
 function MeterSection({ section, user, onSaved }) {
   const cfg = SECTION_CONFIG[section];
-  const [vals, setVals] = useState({ kwh: '', kvah: '', kvarh_lag: '', kvarh_lead: '', md: '' });
-  const [disabled, setDisabled] = useState(false);
+  const [vals, setVals] = useState({ kwh: '', kvah: '', kvarh: '', md: '', pf: '' });
+  const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
+  const [meters, setMeters] = useState([]);
+  const [selectedMeter, setSelectedMeter] = useState('');
+  const [selectedShift, setSelectedShift] = useState('3'); // Default to shift 3
 
-  const checkCooldown = useCallback(() => {
-    const records = storage.get(KEYS.RECORDS, []);
-    const allowances = storage.get(KEYS.ALLOWANCES, []);
-    const now = Date.now();
+  // Load available meters for this section
+  useEffect(() => {
+    const loadMeters = async () => {
+      try {
+        const response = await meterAPI.getAllMeters({ meterName: section, isActive: true });
+        if (response.success) {
+          setMeters(response.data);
+          if (response.data.length > 0) {
+            setSelectedMeter(response.data[0]._id);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load meters:', error);
+        setAlert({ msg: 'Failed to load meters', type: 'error' });
+      }
+    };
+    loadMeters();
+  }, [section]);
 
-    const hasAllowance = allowances.some(a =>
-      a.recorderName === user.name && a.shift === user.shift && a.section === section
-    );
-    const lastRecord = records
-      .filter(r => r.recorderName === user.name && r.shift === user.shift && r.section === section)
-      .sort((a, b) => b.timestamp - a.timestamp)[0];
-    const withinCooldown = lastRecord && lastRecord.timestamp > now - COOLDOWN_MS;
-    setDisabled(!hasAllowance && !!withinCooldown);
-  }, [section, user]);
+  const handleSave = async () => {
+    const { kwh, kvah, kvarh, md, pf } = vals;
 
-  useEffect(() => { checkCooldown(); }, [checkCooldown]);
-
-  const handleSave = () => {
-    const { kwh, kvah, kvarh_lag, kvarh_lead, md } = vals;
-    if (!kwh || !kvah || !kvarh_lag || !kvarh_lead || !md) {
-      setAlert({ msg: 'Please fill all fields.', type: 'error' });
+    // Comprehensive validation
+    if (!selectedMeter) {
+      setAlert({ msg: 'Please select a meter.', type: 'error' });
       return;
     }
-    const now = Date.now();
-    const record = {
-      id: now,
-      section,
-      kwh: parseFloat(kwh),
-      kvah: parseFloat(kvah),
-      kvarh_lag: parseFloat(kvarh_lag),
-      kvarh_lead: parseFloat(kvarh_lead),
-      md: parseFloat(md),
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
-      timestamp: now,
-      recorderName: user.name,
-      mobile: user.mobile,
-      shift: user.shift,
-    };
 
-    const records = storage.get(KEYS.RECORDS, []);
-    records.push(record);
-    storage.set(KEYS.RECORDS, records);
+    if (!kwh || isNaN(parseFloat(kwh)) || parseFloat(kwh) < 0) {
+      setAlert({ msg: 'Please enter a valid KWH reading (must be a positive number).', type: 'error' });
+      return;
+    }
 
-    // Clear allowance
-    let allowances = storage.get(KEYS.ALLOWANCES, []);
-    allowances = allowances.filter(a => !(a.recorderName === user.name && a.shift === user.shift && a.section === section));
-    storage.set(KEYS.ALLOWANCES, allowances);
+    if (!kvah || isNaN(parseFloat(kvah)) || parseFloat(kvah) < 0) {
+      setAlert({ msg: 'Please enter a valid KVAH reading (must be a positive number).', type: 'error' });
+      return;
+    }
 
-    setVals({ kwh: '', kvah: '', kvarh_lag: '', kvarh_lead: '', md: '' });
-    setAlert({ msg: `${section} record saved successfully!`, type: 'success' });
-    checkCooldown();
-    onSaved?.();
-    setTimeout(() => setAlert(null), 4000);
+    if (!kvarh || isNaN(parseFloat(kvarh))) {
+      setAlert({ msg: 'Please enter a valid KVARH reading.', type: 'error' });
+      return;
+    }
+
+    if (!md || isNaN(parseFloat(md)) || parseFloat(md) < 0) {
+      setAlert({ msg: 'Please enter a valid MD reading (must be a positive number).', type: 'error' });
+      return;
+    }
+
+    if (!pf || isNaN(parseFloat(pf)) || parseFloat(pf) < 0 || parseFloat(pf) > 1) {
+      setAlert({ msg: 'Please enter a valid Power Factor (must be between 0 and 1).', type: 'error' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const readingData = {
+        meterId: selectedMeter,
+        readingDate: new Date().toISOString().split('T')[0],
+        shift: selectedShift,
+        KWH: parseFloat(kwh),
+        KVAH: parseFloat(kvah),
+        KVARH: parseFloat(kvarh),
+        MD: parseFloat(md),
+        PF: parseFloat(pf),
+        notes: `Recorded by ${user.username} (${user.role})`,
+      };
+
+      const response = await readingAPI.recordReading(readingData);
+
+      if (response.success) {
+        setVals({ kwh: '', kvah: '', kvarh: '', md: '', pf: '' });
+        setAlert({ msg: `${section} reading recorded successfully!`, type: 'success' });
+        onSaved?.();
+        setTimeout(() => setAlert(null), 4000);
+      } else {
+        setAlert({ msg: response.message || 'Failed to save reading', type: 'error' });
+      }
+    } catch (error) {
+      setAlert({ msg: error.message || 'Failed to save reading', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -82,17 +113,75 @@ function MeterSection({ section, user, onSaved }) {
         </div>
       </div>
 
+      {/* Meter Selection */}
+      {meters.length > 0 && (
+        <FormField label="Select Meter">
+          <select
+            value={selectedMeter}
+            onChange={e => setSelectedMeter(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '13px 15px',
+              background: '#111',
+              border: '1px solid #222',
+              borderRadius: 8,
+              color: '#f0f0f0',
+              fontSize: 15,
+              fontFamily: 'var(--font-display)',
+              outline: 'none',
+            }}
+            disabled={loading}
+          >
+            {meters.map(meter => (
+              <option key={meter._id} value={meter._id}>
+                {meter.meterNumber} - {meter.location}
+              </option>
+            ))}
+          </select>
+        </FormField>
+      )}
+
+      {/* Shift Selection */}
+      <FormField label="Shift">
+        <select
+          value={selectedShift}
+          onChange={e => setSelectedShift(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '13px 15px',
+            background: '#111',
+            border: '1px solid #222',
+            borderRadius: 8,
+            color: '#f0f0f0',
+            fontSize: 15,
+            fontFamily: 'var(--font-display)',
+            outline: 'none',
+          }}
+          disabled={loading}
+        >
+          <option value="1">Shift 1 (6:00 AM - 2:00 PM)</option>
+          <option value="2">Shift 2 (2:00 PM - 10:00 PM)</option>
+          <option value="3">Shift 3 (10:00 PM - 6:00 AM)</option>
+        </select>
+      </FormField>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 18 }}>
-        {['kwh', 'kvah', 'kvarh_lag', 'kvarh_lead', 'md'].map(field => (
-          <div key={field} style={{ gridColumn: field === 'md' ? '1 / -1' : undefined }}>
-            <FormField label={field.replace('_', ' ').toUpperCase()}>
+        {[
+          { key: 'kwh', label: 'KWH' },
+          { key: 'kvah', label: 'KVAH' },
+          { key: 'kvarh', label: 'KVARH' },
+          { key: 'md', label: 'MD' },
+          { key: 'pf', label: 'Power Factor' }
+        ].map(field => (
+          <div key={field.key} style={{ gridColumn: field.key === 'md' || field.key === 'pf' ? '1 / -1' : undefined }}>
+            <FormField label={field.label}>
               <Input
                 type="number"
                 step="0.01"
                 placeholder="0.00"
-                value={vals[field]}
-                onChange={e => setVals(v => ({ ...v, [field]: e.target.value }))}
-                disabled={disabled}
+                value={vals[field.key]}
+                onChange={e => setVals(v => ({ ...v, [field.key]: e.target.value }))}
+                disabled={loading}
               />
             </FormField>
           </div>
@@ -101,10 +190,10 @@ function MeterSection({ section, user, onSaved }) {
 
       <Btn
         onClick={handleSave}
-        disabled={disabled}
-        style={{ background: disabled ? '#333' : cfg.color, color: '#fff', border: 'none' }}
+        disabled={loading}
+        style={{ background: loading ? '#333' : cfg.color, color: '#fff', border: 'none' }}
       >
-        {disabled ? '⏳ Cooldown Active (18h)' : 'Save Record'}
+        {loading ? 'Saving...' : 'Save Record'}
       </Btn>
 
       {alert && <Alert message={alert.msg} type={alert.type} />}
@@ -114,13 +203,6 @@ function MeterSection({ section, user, onSaved }) {
 
 export default function RecorderDashboard({ user, onLogout }) {
   const [refreshKey, setRefreshKey] = useState(0);
-  const allCooldown = SECTIONS.every(section => {
-    const records = storage.get(KEYS.RECORDS, []);
-    const allowances = storage.get(KEYS.ALLOWANCES, []);
-    const hasAllowance = allowances.some(a => a.recorderName === user.name && a.shift === user.shift && a.section === section);
-    const lastRecord = records.filter(r => r.recorderName === user.name && r.shift === user.shift && r.section === section).sort((a, b) => b.timestamp - a.timestamp)[0];
-    return !hasAllowance && lastRecord && lastRecord.timestamp > Date.now() - COOLDOWN_MS;
-  });
 
   return (
     <>
@@ -130,21 +212,14 @@ export default function RecorderDashboard({ user, onLogout }) {
         <div style={{ background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 12, padding: '14px 18px', marginBottom: 22, display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ width: 46, height: 46, background: '#111', border: '2px solid #10B981', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>👤</div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>{user.name}</div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>{user.username}</div>
             <span style={{ display: 'inline-block', padding: '3px 10px', background: 'rgba(16,185,129,0.1)', border: '1px solid #10B981', borderRadius: 6, fontSize: 12, fontWeight: 700, color: '#10B981', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-              Shift {user.shift}
+              {user.role}
             </span>
           </div>
         </div>
 
-        {allCooldown && (
-          <div style={{ background: 'rgba(255,170,0,0.08)', border: '1px solid #FFAA00', borderRadius: 10, padding: '14px 18px', marginBottom: 22, display: 'flex', gap: 14, alignItems: 'center' }}>
-            <span style={{ fontSize: 22 }}>⚠️</span>
-            <p style={{ color: '#FFAA00', fontSize: 14 }}>You have submitted records for all sections within the last 18 hours. Please wait or check with manager if a deletion allows re-recording.</p>
-          </div>
-        )}
-
-        {SECTIONS.map(section => (
+        {['SAPL', 'SMRT', 'SMC-HT'].map(section => (
           <MeterSection key={`${section}-${refreshKey}`} section={section} user={user} onSaved={() => setRefreshKey(k => k + 1)} />
         ))}
       </div>

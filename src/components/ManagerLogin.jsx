@@ -1,18 +1,42 @@
 import { useState } from 'react';
-import { MANAGER_ID, MANAGER_PWD } from '../storage';
+import { authAPI, tokenAPI } from '../api';
 import { FormField, PasswordInput, Input, Btn, Alert } from './UI';
 
 export default function ManagerLogin({ onBack, onLogin }) {
-  const [id, setId] = useState('');
-  const [pwd, setPwd] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [alert, setAlert] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (id === MANAGER_ID && pwd === MANAGER_PWD) {
-      onLogin({ type: 'manager', id });
-    } else {
-      setAlert({ msg: 'Invalid credentials. Check Manager ID and password.', type: 'error' });
+    setLoading(true);
+    
+    try {
+      const response = await authAPI.login({ username, password });
+      
+      if (response.success && response.data.role === 'manager') {
+        // Store token
+        tokenAPI.setToken(response.data.token);
+        
+        // Login user
+        onLogin({
+          type: 'manager',
+          id: response.data.id,
+          username: response.data.username,
+          email: response.data.email,
+          role: response.data.role,
+          token: response.data.token,
+        });
+      } else if (response.success && response.data.role !== 'manager') {
+        setAlert({ msg: 'Access denied. This login is for managers only.', type: 'error' });
+      } else {
+        setAlert({ msg: response.message || 'Login failed', type: 'error' });
+      }
+    } catch (error) {
+      setAlert({ msg: error.message || 'Login failed. Please check your credentials.', type: 'error' });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -32,13 +56,13 @@ export default function ManagerLogin({ onBack, onLogin }) {
         </div>
 
         <form onSubmit={handleSubmit}>
-          <FormField label="Manager ID">
-            <Input type="text" placeholder="Enter Manager ID" value={id} onChange={e => setId(e.target.value)} required />
+          <FormField label="Username">
+            <Input type="text" placeholder="Enter username" value={username} onChange={e => setUsername(e.target.value)} required disabled={loading} />
           </FormField>
           <FormField label="Password">
-            <PasswordInput placeholder="Enter Password" value={pwd} onChange={e => setPwd(e.target.value)} />
+            <PasswordInput placeholder="Enter Password" value={password} onChange={e => setPassword(e.target.value)} disabled={loading} />
           </FormField>
-          <Btn type="submit">Login as Manager</Btn>
+          <Btn type="submit" disabled={loading}>{loading ? 'Logging in...' : 'Login as Manager'}</Btn>
         </form>
         {alert && <Alert message={alert.msg} type={alert.type} onDismiss={() => setAlert(null)} />}
       </div>

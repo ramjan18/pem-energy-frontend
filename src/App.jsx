@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { initStorage } from './storage';
+import { tokenAPI } from './api';
 import WelcomeScreen from './components/WelcomeScreen';
 import ManagerLogin from './components/ManagerLogin';
 import RecorderLogin from './components/RecorderLogin';
@@ -10,15 +10,36 @@ export default function App() {
   const [screen, setScreen] = useState('welcome'); // welcome | managerLogin | recorderLogin | manager | recorder
   const [currentUser, setCurrentUser] = useState(null);
 
-  useEffect(() => { initStorage(); }, []);
+  useEffect(() => {
+    // Check if user is already logged in
+    const token = tokenAPI.getToken();
+    if (token) {
+      // Try to restore user session from localStorage if available
+      const savedUser = localStorage.getItem('currentUser');
+      if (savedUser) {
+        try {
+          const user = JSON.parse(savedUser);
+          setCurrentUser(user);
+          setScreen(user.role === 'manager' ? 'manager' : 'recorder');
+        } catch (e) {
+          console.error('Failed to parse saved user:', e);
+          tokenAPI.removeToken();
+        }
+      }
+    }
+  }, []);
 
   const login = (user) => {
     setCurrentUser(user);
-    setScreen(user.type === 'manager' ? 'manager' : 'recorder');
+    // Save user info to localStorage
+    localStorage.setItem('currentUser', JSON.stringify(user));
+    setScreen(user.role === 'manager' ? 'manager' : 'recorder');
   };
 
   const logout = () => {
     setCurrentUser(null);
+    tokenAPI.removeToken();
+    localStorage.removeItem('currentUser');
     setScreen('welcome');
   };
 

@@ -1,279 +1,110 @@
-// ============================================================
-//  PEM ENERGY MANAGER — Merged Single-File Component
-//  Combines: exportUtils.js + ManagerDashboard.jsx
-// ============================================================
-
 import React, { useState, useEffect, useCallback } from 'react';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { readingAPI, meterAPI, authAPI } from '../api.js';
+import {
+  exportDateRange,
+  exportMonthly,
+  exportSingleDatePDF,
+  exportDeletedMonthly,
+  exportShiftSheets,
+  exportMonthlyBill,
+  exportMeterWise
+} from '../exportUtils.js';
 
 // ─────────────────────────────────────────────
-//  STORAGE LAYER
+//  API LAYER
 // ─────────────────────────────────────────────
-const KEYS = {
-  RECORDS:    'pem_records',
-  DELETED:    'pem_deleted',
-  ALLOWANCES: 'pem_allowances',
-};
-
-const MANAGER_PWD = 'manager123'; // ← change as needed
-
-const storage = {
-  get: (key, fallback = null) => {
+const apiService = {
+  // Load all readings
+  loadReadings: async () => {
     try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch { return fallback; }
+      const response = await readingAPI.getReadings();
+      const apiReadings = response.data || [];
+
+      // Transform API data to match frontend expectations
+      return apiReadings.map(reading => ({
+        _id: reading._id,
+        id: reading._id, // for backward compatibility
+        date: new Date(reading.readingDate).toISOString().split('T')[0],
+        time: new Date(reading.createdAt || reading.readingDate).toLocaleTimeString(),
+        section: reading.meter?.meterName || 'Unknown',
+        shift: reading.shift || '3', // Use actual shift from API
+        kwh: reading.KWH,
+        kvah: reading.KVAH,
+        kvarh_lag: reading.KVARH,
+        kvarh_lead: 0, // API doesn't have separate lag/lead
+        md: reading.MD,
+        recorderName: reading.recordedBy?.username || 'Unknown',
+        timestamp: new Date(reading.createdAt || reading.readingDate).getTime(),
+        notes: reading.notes,
+        meterId: reading.meter?._id,
+        meterNumber: reading.meter?.meterNumber
+      }));
+    } catch (error) {
+      console.error('Error loading readings:', error);
+      return [];
+    }
   },
-  set: (key, value) => {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+
+  // Load all meters
+  loadMeters: async () => {
+    try {
+      const response = await meterAPI.getAllMeters();
+      return response.meters || [];
+    } catch (error) {
+      console.error('Error loading meters:', error);
+      return [];
+    }
   },
+
+  // Load all users
+  loadUsers: async () => {
+    try {
+      const response = await authAPI.getAllUsers();
+      return response.users || [];
+    } catch (error) {
+      console.error('Error loading users:', error);
+      return [];
+    }
+  },
+
+  // Update reading
+  updateReading: async (readingId, readingData) => {
+    try {
+      // Transform frontend data to API format
+      const apiData = {
+        KWH: readingData.kwh,
+        KVAH: readingData.kvah,
+        KVARH: readingData.kvarh_lag + readingData.kvarh_lead, // Combine lag and lead
+        MD: readingData.md,
+        PF: readingData.pf || 1, // Default PF if not provided
+        notes: readingData.notes || '',
+        editedAt: readingData.editedAt,
+        editReason: readingData.editReason
+      };
+
+      const response = await readingAPI.updateReading(readingId, apiData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating reading:', error);
+      throw error;
+    }
+  },
+
+  // Delete reading
+  deleteReading: async (readingId, reason) => {
+    try {
+      await readingAPI.deleteReading(readingId, reason);
+      return true;
+    } catch (error) {
+      console.error('Error deleting reading:', error);
+      throw error;
+    }
+  }
 };
 
 // ─────────────────────────────────────────────
 //  EXPORT UTILITIES  (formerly exportUtils.js)
 // ─────────────────────────────────────────────
-function exportDateRange(records, shift, fromDate, toDate) {
-  const filtered = records.filter(r =>
-    r.shift === shift && r.date >= fromDate && r.date <= toDate
-  );
-  const wb   = XLSX.utils.book_new();
-  const data = [['Date','Time','Section','Shift','KWH','KVAH','KVARH Lag','KVARH Lead','MD','Record Taker']];
-  filtered.forEach(r =>
-    data.push([r.date, r.time, r.section, `Shift ${r.shift}`, r.kwh, r.kvah, r.kvarh_lag, r.kvarh_lead, r.md, r.recorderName])
-  );
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  XLSX.utils.book_append_sheet(wb, ws, `Shift ${shift}`);
-  XLSX.writeFile(wb, `DateRange_Shift${shift}_${fromDate}_to_${toDate}.xlsx`);
-}
-
-function exportMonthly(records, shift, month) {
-  const filtered = records.filter(r => r.shift === shift && r.date.startsWith(month));
-  const wb   = XLSX.utils.book_new();
-  const data = [['Date','Time','Section','Shift','KWH','KVAH','KVARH Lag','KVARH Lead','MD','Record Taker']];
-  filtered.forEach(r =>
-    data.push([r.date, r.time, r.section, `Shift ${r.shift}`, r.kwh, r.kvah, r.kvarh_lag, r.kvarh_lead, r.md, r.recorderName])
-  );
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  XLSX.utils.book_append_sheet(wb, ws, `Shift ${shift} - ${month}`);
-  XLSX.writeFile(wb, `Monthly_Shift${shift}_${month}.xlsx`);
-}
-
-function exportSingleDatePDF(records, date) {
-  const filtered = records.filter(r => r.date === date);
-  const doc = new jsPDF();
-  doc.setFontSize(18);
-  doc.text('PEM Energy Manager', 14, 22);
-  doc.setFontSize(12);
-  doc.text(`Energy Records - ${date}`, 14, 32);
-  doc.autoTable({
-    startY: 40,
-    head: [['Section','Shift','KWH','KVAH','KVARH Lag','KVARH Lead','MD','Recorder']],
-    body: filtered.map(r => [r.section, `Shift ${r.shift}`, r.kwh, r.kvah, r.kvarh_lag, r.kvarh_lead, r.md, r.recorderName]),
-    styles: { fontSize: 9 },
-  });
-  doc.save(`Records_${date}.pdf`);
-}
-
-function exportDeletedMonthly(deletedRecords, month) {
-  const filtered = deletedRecords.filter(r => r.date.startsWith(month));
-  const wb   = XLSX.utils.book_new();
-  const data = [['Date','Section','Shift','KWH','KVAH','KVARH Lag','KVARH Lead','MD','Recorder','Deletion Reason','Deleted At']];
-  filtered.forEach(r =>
-    data.push([r.date, r.section, `Shift ${r.shift}`, r.kwh, r.kvah, r.kvarh_lag, r.kvarh_lead, r.md, r.recorderName, r.deletionReason, new Date(r.deletionDate).toLocaleString()])
-  );
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  XLSX.utils.book_append_sheet(wb, ws, `Deleted-${month}`);
-  XLSX.writeFile(wb, `Deleted_Records_${month}.xlsx`);
-}
-
-function exportShiftSheets(records) {
-  const wb = XLSX.utils.book_new();
-  for (let shift = 1; shift <= 3; shift++) {
-    const shiftRecords = records.filter(r => r.shift === shift.toString());
-    const data = [['Date','Time','Section','Shift','KWH','KVAH','KVARH Lag','KVARH Lead','MD','Record Taker']];
-    shiftRecords.forEach(r =>
-      data.push([r.date, r.time, r.section, r.shift, r.kwh, r.kvah, r.kvarh_lag, r.kvarh_lead, r.md, r.recorderName])
-    );
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), `Shift ${shift}`);
-  }
-  XLSX.writeFile(wb, `Live_Dashboard_${new Date().toISOString().slice(0,10)}.xlsx`);
-}
-
-function exportMonthlyBill(records, meter, month, pricePerUnit) {
-  const MULTIPLIERS = { SAPL: 70, SMRT: 80, 'SMC-HT': 4 };
-  const multiplier  = MULTIPLIERS[meter] || 1;
-
-  const meterRecs = records
-    .filter(r => r.section === meter && r.date.startsWith(month) && r.shift === '3')
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-  const allMeterRecs = records
-    .filter(r => r.section === meter && r.shift === '3')
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-  if (meterRecs.length === 0) {
-    alert(`No Shift 3 records found for ${meter} in ${month}.`);
-    return;
-  }
-
-  const firstDate = meterRecs[0].date;
-  const lastDate  = meterRecs[meterRecs.length - 1].date;
-
-  const prevMonthRecs  = allMeterRecs.filter(r => r.date < firstDate);
-  const initialReading = prevMonthRecs.length > 0
-    ? prevMonthRecs[prevMonthRecs.length - 1].kwh
-    : meterRecs[0].kwh;
-  const lastReading = meterRecs[meterRecs.length - 1].kwh;
-
-  const dailyRows = meterRecs.map((rec, i) => {
-    const prevKwh    = i === 0 ? initialReading : meterRecs[i - 1].kwh;
-    const consumption = ((rec.kwh - prevKwh) * multiplier).toFixed(2);
-    const [y, m, d]  = rec.date.split('-');
-    return { date: `${d}-${m}-${y}`, reading: rec.kwh.toFixed(2), prevReading: prevKwh.toFixed(2), consumption: parseFloat(consumption) };
-  });
-
-  const totalConsumption = dailyRows.reduce((s, r) => s + r.consumption, 0).toFixed(2);
-  const totalCost        = (parseFloat(totalConsumption) * pricePerUnit).toFixed(2);
-  const numDays          = meterRecs.length;
-
-  const [my, mm] = month.split('-');
-  const monthName = new Date(parseInt(my), parseInt(mm) - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' });
-  const fmt = (dateStr) => { const [y, m, d] = dateStr.split('-'); return `${d}-${m}-${y}`; };
-
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const pw  = doc.internal.pageSize.getWidth();
-
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, pw, 42, 'F');
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(22); doc.setFont('helvetica', 'bold');
-  doc.text('PEM ENERGY MANAGEMENT', pw / 2, 16, { align: 'center' });
-  doc.setFontSize(11); doc.setFont('helvetica', 'normal');
-  doc.setTextColor(148, 163, 184);
-  doc.text('Monthly Energy Consumption Bill', pw / 2, 25, { align: 'center' });
-  doc.setFontSize(10); doc.setTextColor(100, 116, 139);
-  doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, pw / 2, 33, { align: 'center' });
-
-  doc.setFillColor(37, 99, 235);
-  doc.rect(0, 42, pw, 10, 'F');
-  doc.setTextColor(255, 255, 255); doc.setFontSize(12); doc.setFont('helvetica', 'bold');
-  doc.text(`${meter} — ${monthName}`, pw / 2, 49, { align: 'center' });
-
-  let y = 60;
-  doc.setDrawColor(226, 232, 240); doc.setFillColor(248, 250, 252);
-  doc.roundedRect(14, y, pw - 28, 54, 3, 3, 'FD');
-
-  const col1 = 20, col2 = pw / 2 + 4, lY = y + 10;
-  const lbl = (txt, cx, cy) => { doc.setTextColor(71, 85, 105); doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.text(txt, cx, cy); };
-  const val = (txt, cx, cy, sz = 13) => { doc.setFont('helvetica', 'normal'); doc.setTextColor(15, 23, 42); doc.setFontSize(sz); doc.text(txt, cx, cy); };
-
-  lbl('METER', col1, lY);              lbl('BILLING MONTH', col2, lY);
-  val(meter, col1, lY + 7);            val(monthName, col2, lY + 7);
-  lbl('DATE RANGE', col1, lY + 18);    lbl('METER MULTIPLIER', col2, lY + 18);
-  val(`${fmt(firstDate)}  to  ${fmt(lastDate)}`, col1, lY + 25, 11);
-  val(`x${multiplier}`, col2, lY + 25, 11);
-  lbl('DAYS RECORDED', col1, lY + 36); lbl('RATE PER UNIT (KWh)', col2, lY + 36);
-  val(`${numDays} days`, col1, lY + 43, 11);
-  val(`Rs. ${parseFloat(pricePerUnit).toFixed(2)} / kWh`, col2, lY + 43, 11);
-
-  y = 122;
-  const boxW = (pw - 42) / 3;
-  [
-    { label: 'INITIAL READING (kWh)', value: parseFloat(initialReading).toFixed(2),       color: [59, 130, 246] },
-    { label: 'FINAL READING (kWh)',   value: parseFloat(lastReading).toFixed(2),           color: [16, 185, 129] },
-    { label: 'GROSS DIFF (Raw kWh)',  value: (lastReading - initialReading).toFixed(2),    color: [139, 92, 246] },
-  ].forEach((box, i) => {
-    const bx = 14 + i * (boxW + 7);
-    doc.setFillColor(...box.color);
-    doc.roundedRect(bx, y, boxW, 22, 2, 2, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(7.5); doc.setFont('helvetica', 'bold');
-    doc.text(box.label, bx + boxW / 2, y + 7, { align: 'center' });
-    doc.setFontSize(14);
-    doc.text(box.value, bx + boxW / 2, y + 17, { align: 'center' });
-  });
-
-  y = 153;
-  doc.setTextColor(15, 23, 42); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text('Daily Consumption Details', 14, y);
-  doc.setDrawColor(37, 99, 235); doc.setLineWidth(0.5);
-  doc.line(14, y + 2, 80, y + 2);
-
-  doc.autoTable({
-    startY: y + 6,
-    head: [['Date', 'Prev. Reading (kWh)', 'Current Reading (kWh)', `Daily Consumption (x${multiplier} kWh)`]],
-    body: dailyRows.map(r => [r.date, r.prevReading, r.reading, r.consumption.toFixed(2)]),
-    styles: { fontSize: 9, cellPadding: 4, font: 'helvetica' },
-    headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: {
-      0: { halign: 'center', cellWidth: 30 },
-      1: { halign: 'right',  cellWidth: 45 },
-      2: { halign: 'right',  cellWidth: 45 },
-      3: { halign: 'right',  cellWidth: 55, textColor: [37, 99, 235], fontStyle: 'bold' },
-    },
-    margin: { left: 14, right: 14 },
-    foot: [[
-      { content: 'TOTAL', styles: { fontStyle: 'bold', fillColor: [15, 23, 42], textColor: [255, 255, 255] } },
-      { content: '', styles: { fillColor: [15, 23, 42] } },
-      { content: '', styles: { fillColor: [15, 23, 42] } },
-      { content: totalConsumption + ' kWh', styles: { fontStyle: 'bold', fillColor: [37, 99, 235], textColor: [255, 255, 255], halign: 'right' } },
-    ]],
-    showFoot: 'lastPage',
-  });
-
-  const sY = doc.lastAutoTable.finalY + 10;
-  doc.setFillColor(15, 23, 42);
-  doc.roundedRect(14, sY, pw - 28, 46, 3, 3, 'F');
-  doc.setTextColor(148, 163, 184); doc.setFontSize(10); doc.setFont('helvetica', 'bold');
-  doc.text('MONTHLY BILL SUMMARY', pw / 2, sY + 10, { align: 'center' });
-
-  const sc1 = 30, sc2 = pw / 2, sc3 = pw - 30;
-  const sr1  = sY + 20, sr2 = sY + 36;
-  doc.setTextColor(100, 116, 139); doc.setFontSize(8);
-  doc.text('TOTAL CONSUMPTION', sc1, sr1, { align: 'center' });
-  doc.text('RATE PER UNIT',      sc2, sr1, { align: 'center' });
-  doc.text('TOTAL BILL AMOUNT',  sc3, sr1, { align: 'center' });
-
-  doc.setTextColor(255, 255, 255); doc.setFontSize(14); doc.setFont('helvetica', 'bold');
-  doc.text(`${totalConsumption} kWh`, sc1, sr2, { align: 'center' });
-  doc.setTextColor(148, 163, 184); doc.setFontSize(12);
-  doc.text(`Rs. ${parseFloat(pricePerUnit).toFixed(2)}`, sc2, sr2, { align: 'center' });
-  doc.setTextColor(52, 211, 153); doc.setFontSize(16);
-  doc.text(`Rs. ${parseFloat(totalCost).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, sc3, sr2, { align: 'center' });
-
-  doc.setDrawColor(30, 41, 59); doc.setLineWidth(0.4);
-  doc.line(pw / 2 - 20, sY + 14, pw / 2 - 20, sY + 42);
-  doc.line(pw / 2 + 30, sY + 14, pw / 2 + 30, sY + 42);
-
-  const fY = sY + 56;
-  doc.setTextColor(148, 163, 184); doc.setFontSize(8); doc.setFont('helvetica', 'normal');
-  doc.text('PEM Energy Management System  •  Authorized by: Kazi Sir  •  Confidential', pw / 2, fY, { align: 'center' });
-  doc.text(`System-generated bill for ${meter} meter — ${monthName}`, pw / 2, fY + 6, { align: 'center' });
-
-  doc.save(`MonthlyBill_${meter}_${month}.pdf`);
-}
-
-function exportMeterWise(records) {
-  const wb = XLSX.utils.book_new();
-  ['SMRT', 'SAPL', 'SMC-HT'].forEach(meter => {
-    const meterRecords = records.filter(r => r.section === meter);
-    const data = [['Date','Time','Shift','KWH','KVAH','KVARH Lag','KVARH Lead','MD','Record Taker']];
-    meterRecords.forEach(r =>
-      data.push([r.date, r.time, `Shift ${r.shift}`, r.kwh, r.kvah, r.kvarh_lag, r.kvarh_lead, r.md, r.recorderName])
-    );
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data), meter);
-  });
-  const allData = [['Date','Time','Section','Shift','KWH','KVAH','KVARH Lag','KVARH Lead','MD','Record Taker']];
-  records.forEach(r =>
-    allData.push([r.date, r.time, r.section, `Shift ${r.shift}`, r.kwh, r.kvah, r.kvarh_lag, r.kvarh_lead, r.md, r.recorderName])
-  );
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(allData), 'All Records');
-  XLSX.writeFile(wb, `Meter_Wise_Export_${new Date().toISOString().slice(0,10)}.xlsx`);
-}
-
 // ─────────────────────────────────────────────
 //  UI PRIMITIVES
 // ─────────────────────────────────────────────
@@ -424,10 +255,8 @@ const formatDate     = (d)   => { const [y, m, day] = d.split('-'); return `${da
 function RecordsTab({ records, onRecordsChange }) {
   const [editModal,    setEditModal]    = useState(null);
   const [deleteModal,  setDeleteModal]  = useState(null);
-  const [editPwd,      setEditPwd]      = useState('');
   const [editReason,   setEditReason]   = useState('');
   const [editVals,     setEditVals]     = useState({});
-  const [deletePwd,    setDeletePwd]    = useState('');
   const [deleteReason, setDeleteReason] = useState('');
   const [alert,        setAlert]        = useState(null);
   const [meterFilter,  setMeterFilter]  = useState('all');
@@ -438,33 +267,70 @@ function RecordsTab({ records, onRecordsChange }) {
   const yesterdayDate = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
   const showAlert  = (msg, type) => { setAlert({ msg, type }); setTimeout(() => setAlert(null), 5000); };
-  const openEdit   = (r) => { setEditModal(r); setEditPwd(''); setEditReason(''); setEditVals({ kwh: r.kwh, kvah: r.kvah, kvarh_lag: r.kvarh_lag, kvarh_lead: r.kvarh_lead, md: r.md }); };
-  const openDelete = (r) => { setDeleteModal(r); setDeletePwd(''); setDeleteReason(''); };
+  const openEdit   = (r) => { setEditModal(r); setEditReason(''); setEditVals({ kwh: r.kwh, kvah: r.kvah, kvarh_lag: r.kvarh_lag, kvarh_lead: r.kvarh_lead, md: r.md }); };
+  const openDelete = (r) => { setDeleteModal(r); setDeleteReason(''); };
 
-  const handleEdit = () => {
-    if (editPwd !== MANAGER_PWD)     return showAlert('Invalid manager password.', 'error');
-    if (editReason.length < 15)      return showAlert('Reason must be at least 15 characters.', 'error');
-    const recs = storage.get(KEYS.RECORDS, []);
-    const idx  = recs.findIndex(r => r.id === editModal.id);
-    recs[idx]  = { ...recs[idx], ...editVals, kwh: parseFloat(editVals.kwh), kvah: parseFloat(editVals.kvah), kvarh_lag: parseFloat(editVals.kvarh_lag), kvarh_lead: parseFloat(editVals.kvarh_lead), md: parseFloat(editVals.md), editedAt: new Date().toISOString(), editReason };
-    storage.set(KEYS.RECORDS, recs);
-    setEditModal(null); onRecordsChange(); showAlert('Record updated successfully.', 'success');
+  const handleEdit = async () => {
+    // Validate edit reason
+    if (editReason.length < 15) {
+      return showAlert('Reason must be at least 15 characters.', 'error');
+    }
+
+    // Validate numeric fields
+    const kwh = parseFloat(editVals.kwh);
+    const kvah = parseFloat(editVals.kvah);
+    const kvarh_lag = parseFloat(editVals.kvarh_lag);
+    const kvarh_lead = parseFloat(editVals.kvarh_lead);
+    const md = parseFloat(editVals.md);
+
+    if (isNaN(kwh) || kwh < 0) {
+      return showAlert('KWH must be a valid positive number.', 'error');
+    }
+    if (isNaN(kvah) || kvah < 0) {
+      return showAlert('KVAH must be a valid positive number.', 'error');
+    }
+    if (isNaN(kvarh_lag)) {
+      return showAlert('KVARH Lag must be a valid number.', 'error');
+    }
+    if (isNaN(kvarh_lead)) {
+      return showAlert('KVARH Lead must be a valid number.', 'error');
+    }
+    if (isNaN(md) || md < 0) {
+      return showAlert('MD must be a valid positive number.', 'error');
+    }
+
+    try {
+      const updatedData = {
+        KWH: kwh,
+        KVAH: kvah,
+        KVARH: kvarh_lag + kvarh_lead, // Combine lag and lead
+        MD: md,
+        PF: editModal.pf || 1, // Keep existing PF if not changed
+        notes: editModal.notes || '',
+        editedAt: new Date().toISOString(),
+        editReason
+      };
+
+      await apiService.updateReading(editModal._id, updatedData);
+      setEditModal(null);
+      onRecordsChange();
+      showAlert('Record updated successfully.', 'success');
+    } catch (error) {
+      showAlert('Failed to update record: ' + error.message, 'error');
+    }
   };
 
-  const handleDelete = () => {
-    if (deletePwd !== MANAGER_PWD)   return showAlert('Invalid manager password.', 'error');
+  const handleDelete = async () => {
     if (deleteReason.length < 15)    return showAlert('Reason must be at least 15 characters.', 'error');
-    const recs = storage.get(KEYS.RECORDS, []);
-    const idx  = recs.findIndex(r => r.id === deleteModal.id);
-    const [deleted] = recs.splice(idx, 1);
-    storage.set(KEYS.RECORDS, recs);
-    const deletedRecs = storage.get(KEYS.DELETED, []);
-    deletedRecs.push({ ...deleted, deletionReason: deleteReason, deletionDate: new Date().toISOString() });
-    storage.set(KEYS.DELETED, deletedRecs);
-    const allowances = storage.get(KEYS.ALLOWANCES, []);
-    allowances.push({ recorderName: deleted.recorderName, shift: deleted.shift, section: deleted.section });
-    storage.set(KEYS.ALLOWANCES, allowances);
-    setDeleteModal(null); onRecordsChange(); showAlert('Record deleted. Recorder can now re-enter this section.', 'success');
+
+    try {
+      await apiService.deleteReading(deleteModal._id, deleteReason);
+      setDeleteModal(null);
+      onRecordsChange();
+      showAlert('Record deleted successfully.', 'success');
+    } catch (error) {
+      showAlert('Failed to delete record: ' + error.message, 'error');
+    }
   };
 
   function calcRow(r) {
@@ -508,7 +374,7 @@ function RecordsTab({ records, onRecordsChange }) {
 
       <div style={{ background: 'rgba(37,99,235,0.06)', border: '1px solid rgba(37,99,235,0.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 18, display: 'flex', gap: 10, alignItems: 'center' }}>
         <span style={{ fontSize: 16 }}>ℹ️</span>
-        <p style={{ fontSize: 13, color: '#6B9EFF' }}>Click <strong>Edit</strong> or <strong>Delete</strong> to modify records. Manager password and a 15-character reason are required.</p>
+        <p style={{ fontSize: 13, color: '#6B9EFF' }}>Click <strong>Edit</strong> or <strong>Delete</strong> to modify records. A 15-character reason is required for audit purposes.</p>
       </div>
 
       {alert && <Alert message={alert.msg} type={alert.type} />}
@@ -632,7 +498,6 @@ function RecordsTab({ records, onRecordsChange }) {
 
       {editModal && (
         <Modal title="✏️ Edit Record" subtitle="Update record values and provide a reason for modification." onClose={() => setEditModal(null)}>
-          <FormField label="Manager Password"><PasswordInput placeholder="Enter manager password" value={editPwd} onChange={e => setEditPwd(e.target.value)} /></FormField>
           <FormField label={`Reason for Edit (${editReason.length}/15 min)`}>
             <textarea value={editReason} onChange={e => setEditReason(e.target.value)} placeholder="Provide detailed reason for editing this record..." style={{ width: '100%', padding: '13px 15px', background: '#111', border: `1px solid ${editReason.length >= 15 ? '#10B981' : '#222'}`, borderRadius: 8, color: '#f0f0f0', fontSize: 14, fontFamily: V.fontDisplay, resize: 'vertical', minHeight: 90, outline: 'none', boxSizing: 'border-box' }} />
           </FormField>
@@ -652,7 +517,6 @@ function RecordsTab({ records, onRecordsChange }) {
 
       {deleteModal && (
         <Modal title="🗑️ Delete Record" subtitle="⚠️ This action cannot be undone." onClose={() => setDeleteModal(null)}>
-          <FormField label="Manager Password"><PasswordInput placeholder="Enter manager password" value={deletePwd} onChange={e => setDeletePwd(e.target.value)} /></FormField>
           <FormField label={`Reason for Deletion (${deleteReason.length}/15 min)`}>
             <textarea value={deleteReason} onChange={e => setDeleteReason(e.target.value)} placeholder="Provide detailed reason for deleting this record..." style={{ width: '100%', padding: '13px 15px', background: '#111', border: `1px solid ${deleteReason.length >= 15 ? '#10B981' : '#222'}`, borderRadius: 8, color: '#f0f0f0', fontSize: 14, fontFamily: V.fontDisplay, resize: 'vertical', minHeight: 90, outline: 'none', boxSizing: 'border-box' }} />
           </FormField>
@@ -670,30 +534,107 @@ function RecordsTab({ records, onRecordsChange }) {
 //  DELETED TAB
 // ─────────────────────────────────────────────
 function DeletedTab() {
-  const deleted = storage.get(KEYS.DELETED, []).sort((a, b) => new Date(b.deletionDate) - new Date(a.deletionDate));
-  return (
-    <div>
-      <div style={{ background: '#0a0a0a', border: '1px solid #EF4444', borderRadius: 12, padding: 18, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
-        <span style={{ fontSize: 22 }}>⚠️</span>
-        <div>
-          <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 15 }}>Deleted Records</div>
-          <div style={{ fontSize: 12, color: '#666' }}>View-only archive of deleted entries with deletion reasons</div>
+  const [deletedRecords, setDeletedRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [hoveredRow, setHoveredRow] = useState(null);
+
+  useEffect(() => {
+    loadDeletedRecords();
+  }, []);
+
+  const loadDeletedRecords = async () => {
+    try {
+      setLoading(true);
+      const response = await readingAPI.getDeletedReadings();
+      setDeletedRecords(response.data || []);
+      setError(null);
+    } catch (err) {
+      setError('Failed to load deleted records: ' + err.message);
+      setDeletedRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestore = async (recordId) => {
+    try {
+      await readingAPI.restoreReading(recordId);
+      setDeletedRecords(deletedRecords.filter(r => r._id !== recordId));
+    } catch (err) {
+      setError('Failed to restore record: ' + err.message);
+    }
+  };
+
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: 48, color: '#666', fontSize: 14 }}>Loading deleted records...</div>;
+  }
+
+  if (error) {
+    return (
+      <div style={{ background: '#EF444411', border: '1px solid #EF444433', borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: '#EF4444', fontSize: 13, fontFamily: V.fontDisplay }}>
+        {error}
+      </div>
+    );
+  }
+
+  if (deletedRecords.length === 0) {
+    return (
+      <div>
+        <div style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: 12, padding: 18, marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+          <span style={{ fontSize: 22 }}>✓</span>
+          <div>
+            <div style={{ fontWeight: 700, color: '#10B981', fontSize: 15 }}>No Deleted Records</div>
+            <div style={{ fontSize: 12, color: '#666' }}>All records are intact and accessible</div>
+          </div>
         </div>
       </div>
-      <DataTable headers={['Date','Section','Shift','KWH','KVAH','KVARH Lag','KVARH Lead','MD','Recorder','Reason','Deleted At']} emptyMessage="No deleted records.">
-        {deleted.map(r => (
-          <tr key={r.id + r.deletionDate}>
-            <td style={tdStyle}>{r.date}</td>
-            <td style={tdStyle}><SectionBadge section={r.section} /></td>
-            <td style={{ ...tdStyle, fontFamily: V.fontMono, fontSize: 12 }}>Shift {r.shift}</td>
-            <td style={{ ...tdStyle, fontFamily: V.fontMono }}>{r.kwh}</td>
-            <td style={{ ...tdStyle, fontFamily: V.fontMono }}>{r.kvah}</td>
-            <td style={{ ...tdStyle, fontFamily: V.fontMono }}>{r.kvarh_lag}</td>
-            <td style={{ ...tdStyle, fontFamily: V.fontMono }}>{r.kvarh_lead}</td>
-            <td style={{ ...tdStyle, fontFamily: V.fontMono }}>{r.md}</td>
-            <td style={tdStyle}>{r.recorderName}</td>
-            <td style={{ ...tdStyle, color: '#EF4444', fontSize: 12 }}>{r.deletionReason}</td>
-            <td style={{ ...tdStyle, fontFamily: V.fontMono, fontSize: 11, color: '#666' }}>{new Date(r.deletionDate).toLocaleString()}</td>
+    );
+  }
+
+  return (
+    <div>
+      <DataTable
+        headers={['Date', 'Section', 'Shift', 'KWH', 'Deleted By', 'Reason', 'Action']}
+        emptyMessage="No deleted records found"
+      >
+        {deletedRecords.map(r => (
+          <tr
+            key={r._id}
+            style={{
+              background: hoveredRow === r._id ? '#0f0f0f' : 'transparent',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={() => setHoveredRow(r._id)}
+            onMouseLeave={() => setHoveredRow(null)}
+          >
+            <td style={tdStyle}>{r.readingDate ? r.readingDate.split('T')[0] : '—'}</td>
+            <td style={tdStyle}><SectionBadge section={r.meter?.meterName || '—'} /></td>
+            <td style={tdStyle}>{`Shift ${r.shift}`}</td>
+            <td style={tdStyle}>{r.KWH.toFixed(2)}</td>
+            <td style={tdStyle}>{r.deletedBy?.username || '—'}</td>
+            <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.deletionReason}>{r.deletionReason || '—'}</td>
+            <td style={tdStyle}>
+              <button
+                onClick={() => handleRestore(r._id)}
+                style={{
+                  padding: '6px 12px',
+                  background: '#10B981',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: 12,
+                  fontFamily: V.fontDisplay,
+                  transition: 'all 0.2s',
+                }}
+                onMouseOver={e => e.currentTarget.style.background = '#059669'}
+                onMouseOut={e => e.currentTarget.style.background = '#10B981'}
+              >
+                Restore
+              </button>
+            </td>
           </tr>
         ))}
       </DataTable>
@@ -863,151 +804,143 @@ function LiveDashboardTab({ records }) {
 // ─────────────────────────────────────────────
 //  EXPORT TAB
 // ─────────────────────────────────────────────
-// ─── Bill password gate constants ───────────────
-const BILL_AUTH_PWD  = 'PEM1234';
-const BILL_AUTH_USER = 'Arif Kazi';
-
-// Sub-component: two-step Monthly Bill modal
+// ─── Bill generation (API-based authorization) ───────────────
 function MonthlyBillModal({ records, onClose }) {
-  // Step 1 — auth
-  const [authUser,    setAuthUser]    = useState(BILL_AUTH_USER);
-  const [authPwd,     setAuthPwd]     = useState('');
-  const [authError,   setAuthError]   = useState('');
-  const [authPassed,  setAuthPassed]  = useState(false);
-
-  // Step 2 — bill config
+  // Single step — bill config (authorization handled by API)
   const [meter, setMeter] = useState('SAPL');
   const [month, setMonth] = useState('');
   const [price, setPrice] = useState('');
   const [exportError, setExportError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleAuth = () => {
-    if (authPwd !== BILL_AUTH_PWD) {
-      setAuthError('❌ Incorrect password. Access denied.');
-      return;
-    }
-    setAuthError('');
-    setAuthPassed(true);
-  };
-
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!month) return setExportError('Please select a month.');
     if (!price || isNaN(parseFloat(price))) return setExportError('Please enter a valid rate per unit.');
+
     setExportError('');
-    exportMonthlyBill(records, meter, month, parseFloat(price));
-    onClose();
+    setLoading(true);
+
+    try {
+      // Use API to get filtered records for the month
+      const filteredRecords = records.filter(r =>
+        r.section === meter && r.date.startsWith(month)
+      );
+
+      if (filteredRecords.length === 0) {
+        setExportError('No records found for the selected month and meter.');
+        return;
+      }
+
+      exportMonthlyBill(filteredRecords, meter, month, parseFloat(price));
+      onClose();
+    } catch (error) {
+      setExportError('Failed to generate bill: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <Modal
       title="💰 Monthly Bill PDF"
-      subtitle={authPassed ? `Authorized as ${BILL_AUTH_USER} · Configure bill details below` : 'Authorization required to generate monthly bill'}
+      subtitle="Generate authorized monthly bill for selected meter and period"
       onClose={onClose}
     >
-      {!authPassed ? (
-        /* ── STEP 1: Auth Gate ── */
-        <>
-          {/* Lock icon header */}
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 56, borderRadius: 16, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', fontSize: 26, marginBottom: 12 }}>🔐</div>
-            <div style={{ fontSize: 13, color: '#555', fontFamily: V.fontDisplay }}>Enter your credentials to unlock bill generation</div>
-          </div>
+      <FormField label="Meter">
+        <Select value={meter} onChange={e => setMeter(e.target.value)}>
+          <option value="SAPL">SAPL (×70)</option>
+          <option value="SMRT">SMRT (×80)</option>
+          <option value="SMC-HT">SMC-HT (×4)</option>
+        </Select>
+      </FormField>
 
-          {/* Authorizer dropdown */}
-          <FormField label="Authorizer">
-            <Select value={authUser} onChange={e => setAuthUser(e.target.value)}>
-              <option value="Arif Kazi">Arif Kazi</option>
-            </Select>
-          </FormField>
+      <FormField label="Billing Month">
+        <Input type="month" value={month} onChange={e => setMonth(e.target.value)} />
+      </FormField>
 
-          {/* Password */}
-          <FormField label="Authorization Password">
-            <PasswordInput
-              placeholder="Enter your password"
-              value={authPwd}
-              onChange={e => { setAuthPwd(e.target.value); setAuthError(''); }}
-            />
-          </FormField>
+      <FormField label="Rate per Unit (Rs / kWh)">
+        <Input type="number" step="0.01" placeholder="e.g. 8.50" value={price} onChange={e => setPrice(e.target.value)} />
+      </FormField>
 
-          {authError && (
-            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16, color: '#EF4444', fontSize: 13, fontFamily: V.fontDisplay }}>
-              {authError}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-            <Btn variant="secondary" onClick={onClose} style={{ flex: 1 }}>Cancel</Btn>
-            <Btn
-              onClick={handleAuth}
-              style={{ flex: 1, background: 'linear-gradient(135deg,#F59E0B,#D97706)', border: 'none' }}
-            >
-              🔓 Verify & Continue
-            </Btn>
-          </div>
-        </>
-      ) : (
-        /* ── STEP 2: Bill Config (unlocked) ── */
-        <>
-          {/* Success badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 10, padding: '10px 14px', marginBottom: 20 }}>
-            <span style={{ fontSize: 16 }}>✅</span>
-            <span style={{ fontSize: 13, color: '#10B981', fontFamily: V.fontDisplay, fontWeight: 600 }}>
-              Access granted · Authorized by <strong>{BILL_AUTH_USER}</strong>
-            </span>
-          </div>
-
-          <FormField label="Meter">
-            <Select value={meter} onChange={e => setMeter(e.target.value)}>
-              <option value="SAPL">SAPL (×70)</option>
-              <option value="SMRT">SMRT (×80)</option>
-              <option value="SMC-HT">SMC-HT (×4)</option>
-            </Select>
-          </FormField>
-
-          <FormField label="Billing Month">
-            <Input type="month" value={month} onChange={e => setMonth(e.target.value)} />
-          </FormField>
-
-          <FormField label="Rate per Unit (Rs / kWh)">
-            <Input type="number" step="0.01" placeholder="e.g. 8.50" value={price} onChange={e => setPrice(e.target.value)} />
-          </FormField>
-
-          {exportError && (
-            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#EF4444', fontSize: 13 }}>
-              {exportError}
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-            <Btn variant="secondary" onClick={onClose} style={{ flex: 1 }}>Cancel</Btn>
-            <Btn
-              onClick={handleExport}
-              style={{ flex: 1, background: 'linear-gradient(135deg,#F59E0B,#D97706)', border: 'none' }}
-            >
-              📄 Generate Bill PDF
-            </Btn>
-          </div>
-        </>
+      {exportError && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#EF4444', fontSize: 13 }}>
+          {exportError}
+        </div>
       )}
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+        <Btn variant="secondary" onClick={onClose} style={{ flex: 1 }}>Cancel</Btn>
+        <Btn
+          onClick={handleExport}
+          disabled={loading}
+          style={{ flex: 1, background: loading ? '#666' : 'linear-gradient(135deg,#F59E0B,#D97706)', border: 'none' }}
+        >
+          {loading ? '⏳ Generating...' : '📄 Generate Bill PDF'}
+        </Btn>
+      </div>
     </Modal>
   );
 }
 
 function ExportTab({ records }) {
-  const [modal,       setModal]       = useState(null);
-  const [exportShift, setExportShift] = useState('1');
-  const [fromDate,    setFromDate]    = useState('');
-  const [toDate,      setToDate]      = useState('');
-  const [month,       setMonth]       = useState('');
-  const [singleDate,  setSingleDate]  = useState('');
+  const [modal,           setModal]           = useState(null);
+  const [exportShift,     setExportShift]     = useState('1');
+  const [fromDate,        setFromDate]        = useState('');
+  const [toDate,          setToDate]          = useState('');
+  const [month,           setMonth]           = useState('');
+  const [singleDate,      setSingleDate]      = useState('');
+  const [deletedRecords,  setDeletedRecords]  = useState([]);
+  const [loadingDeleted,  setLoadingDeleted]  = useState(false);
+  const [exportError,     setExportError]     = useState('');
+
+  useEffect(() => {
+    loadDeletedRecords();
+  }, []);
+
+  const loadDeletedRecords = async () => {
+    try {
+      setLoadingDeleted(true);
+      const response = await readingAPI.getDeletedReadings();
+      setDeletedRecords(response.data || []);
+    } catch (err) {
+      console.error('Failed to load deleted records:', err);
+      setDeletedRecords([]);
+    } finally {
+      setLoadingDeleted(false);
+    }
+  };
 
   const doExport = () => {
-    const deleted = storage.get(KEYS.DELETED, []);
-    if (modal === 'dateRange')           exportDateRange(records, exportShift, fromDate, toDate);
-    else if (modal === 'monthly')        exportMonthly(records, exportShift, month);
-    else if (modal === 'singleDate')     exportSingleDatePDF(records, singleDate);
-    else if (modal === 'deletedMonthly') exportDeletedMonthly(deleted, month);
-    setModal(null);
+    try {
+      setExportError('');
+      if (modal === 'dateRange')           exportDateRange(records, exportShift, fromDate, toDate);
+      else if (modal === 'monthly')        exportMonthly(records, exportShift, month);
+      else if (modal === 'singleDate')     exportSingleDatePDF(records, singleDate);
+      else if (modal === 'deletedMonthly') {
+        if (deletedRecords.length === 0) {
+          setExportError('No deleted records available to export.');
+          return;
+        }
+        // Transform API data to match export format
+        const transformed = deletedRecords.map(r => ({
+          date: r.readingDate ? r.readingDate.split('T')[0] : '',
+          section: r.meter?.meterName || 'Unknown',
+          shift: r.shift || '3',
+          kwh: r.KWH,
+          kvah: r.KVAH,
+          kvarh_lag: r.KVARH || 0,
+          kvarh_lead: 0,
+          md: r.MD,
+          recorderName: r.recordedBy?.username || 'Unknown',
+          deletionReason: r.deletionReason,
+          deletionDate: r.deletedAt || new Date().toISOString()
+        }));
+        exportDeletedMonthly(transformed, month);
+      }
+      setModal(null);
+    } catch (error) {
+      setExportError('Export failed: ' + error.message);
+    }
   };
 
   const exportCards = [
@@ -1063,6 +996,11 @@ function ExportTab({ records }) {
           {modal === 'deletedMonthly' && (
             <FormField label="Month"><Input type="month" value={month} onChange={e => setMonth(e.target.value)} /></FormField>
           )}
+          {exportError && (
+            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#EF4444', fontSize: 13 }}>
+              {exportError}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
             <Btn variant="secondary" onClick={() => setModal(null)} style={{ flex: 1 }}>Cancel</Btn>
             <Btn onClick={doExport} style={{ flex: 1 }}>📥 Export</Btn>
@@ -1086,9 +1024,21 @@ const TABS = [
 export default function ManagerDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('records');
   const [records,   setRecords]   = useState([]);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState(null);
 
-  const loadRecords = useCallback(() => {
-    setRecords(storage.get(KEYS.RECORDS, []));
+  const loadRecords = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiService.loadReadings();
+      setRecords(data);
+    } catch (err) {
+      setError('Failed to load records: ' + err.message);
+      console.error('Error loading records:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { loadRecords(); }, [loadRecords]);
@@ -1104,8 +1054,8 @@ export default function ManagerDashboard({ user, onLogout }) {
         ::-webkit-scrollbar-track { background: #0a0a0a; }
         ::-webkit-scrollbar-thumb { background: #222; border-radius: 3px; }
       `}</style>
-
-      <TopHeader title="PEM Energy Manager" subtitle={`Manager Dashboard${user ? ` · ${user}` : ''}`} onLogout={onLogout} />
+      {console.log('Rendering ManagerDashboard with user:', user)}
+      <TopHeader title="PEM Energy Manager" subtitle={`Manager Dashboard${user ? ` · ${user.username}` : ''}`} onLogout={onLogout} />
 
       <div style={{ maxWidth: 1280, margin: '0 auto', padding: '24px 20px' }}>
         {/* Tab bar */}
@@ -1120,10 +1070,30 @@ export default function ManagerDashboard({ user, onLogout }) {
 
         {/* Tab content */}
         <div key={activeTab} style={{ animation: 'fadeIn 0.25s ease' }}>
-          {activeTab === 'records' && <RecordsTab records={records} onRecordsChange={loadRecords} />}
-          {activeTab === 'deleted' && <DeletedTab />}
-          {activeTab === 'live'    && <LiveDashboardTab records={records} />}
-          {activeTab === 'export'  && <ExportTab records={records} />}
+          {error && (
+            <div style={{ background: '#0a0a0a', border: '1px solid #EF4444', borderRadius: 12, padding: 18, marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center' }}>
+              <span style={{ fontSize: 22 }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: 700, color: '#EF4444', fontSize: 15 }}>Error Loading Data</div>
+                <div style={{ fontSize: 12, color: '#666' }}>{error}</div>
+              </div>
+              <button onClick={loadRecords} style={{ marginLeft: 'auto', padding: '8px 16px', background: '#EF4444', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12 }}>Retry</button>
+            </div>
+          )}
+
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 48, color: '#666' }}>
+              <div style={{ fontSize: 18, marginBottom: 10 }}>Loading data...</div>
+              <div style={{ fontSize: 14 }}>Please wait while we fetch the latest records</div>
+            </div>
+          ) : (
+            <>
+              {activeTab === 'records' && <RecordsTab records={records} onRecordsChange={loadRecords} />}
+              {activeTab === 'deleted' && <DeletedTab />}
+              {activeTab === 'live'    && <LiveDashboardTab records={records} />}
+              {activeTab === 'export'  && <ExportTab records={records} />}
+            </>
+          )}
         </div>
       </div>
     </div>
