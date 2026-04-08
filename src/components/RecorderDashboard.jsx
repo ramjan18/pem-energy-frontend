@@ -3,19 +3,42 @@ import { meterAPI, readingAPI } from '../api';
 import { TopHeader, Alert, FormField, Input, Btn } from './UI';
 
 const SECTION_CONFIG = {
-  'SMRT':   { icon: '⚡', color: '#4169E1', label: 'SMRT' },
-  'SAPL':   { icon: '📊', color: '#10B981', label: 'SAPL' },
+  'SMRT': { icon: '⚡', color: '#4169E1', label: 'SMRT' },
+  'SAPL': { icon: '📊', color: '#10B981', label: 'SAPL' },
   'SMC-HT': { icon: '⚙️', color: '#8B5CF6', label: 'SMC-HT' },
 };
 
-function MeterSection({ section, user, onSaved }) {
+function MeterSection({ section, user, selectedShift, onSaved }) {
   const cfg = SECTION_CONFIG[section];
-  const [vals, setVals] = useState({ kwh: '', kvah: '', kvarh: '', md: '', pf: '' });
+  const [vals, setVals] = useState({ kwh: '', kvah: '', kvarhLag: '', kvarhLead: '', md: '' });
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
   const [meters, setMeters] = useState([]);
   const [selectedMeter, setSelectedMeter] = useState('');
-  const [selectedShift, setSelectedShift] = useState('3'); // Default to shift 3
+  const [locked, setLocked] = useState(false);
+
+  useEffect(() => {
+    if (!selectedMeter || !selectedShift) {
+      setLocked(false);
+      return;
+    }
+
+    const checkLocked = async () => {
+      try {
+        const response = await readingAPI.getReadings({ meterId: selectedMeter, shift: selectedShift, limit: 1 });
+        const existing = (response.data || []).some(r => {
+          const createdAt = new Date(r.createdAt || r.readingDate).getTime();
+          return createdAt >= Date.now() - 18 * 60 * 60 * 1000;
+        });
+        setLocked(existing);
+      } catch (error) {
+        console.error('Failed to check meter lock:', error);
+        setLocked(false);
+      }
+    };
+
+    checkLocked();
+  }, [selectedMeter, selectedShift]);
 
   // Load available meters for this section
   useEffect(() => {
@@ -37,7 +60,7 @@ function MeterSection({ section, user, onSaved }) {
   }, [section]);
 
   const handleSave = async () => {
-    const { kwh, kvah, kvarh, md, pf } = vals;
+    const { kwh, kvah, kvarhLag, kvarhLead, md } = vals;
 
     // Comprehensive validation
     // if (!selectedMeter) {
@@ -55,8 +78,13 @@ function MeterSection({ section, user, onSaved }) {
       return;
     }
 
-    if (!kvarh || isNaN(parseFloat(kvarh))) {
-      setAlert({ msg: 'Please enter a valid KVARH reading.', type: 'error' });
+    if (!kvarhLag || isNaN(parseFloat(kvarhLag)) || parseFloat(kvarhLag) < 0) {
+      setAlert({ msg: 'Please enter a valid KVARH Lag reading.', type: 'error' });
+      return;
+    }
+
+    if (!kvarhLead || isNaN(parseFloat(kvarhLead)) || parseFloat(kvarhLead) < 0) {
+      setAlert({ msg: 'Please enter a valid KVARH Lead reading.', type: 'error' });
       return;
     }
 
@@ -65,29 +93,27 @@ function MeterSection({ section, user, onSaved }) {
       return;
     }
 
-    if (!pf || isNaN(parseFloat(pf)) || parseFloat(pf) < 0 || parseFloat(pf) > 1) {
-      setAlert({ msg: 'Please enter a valid Power Factor (must be between 0 and 1).', type: 'error' });
-      return;
-    }
-
     setLoading(true);
     try {
+      const totalKVARH = parseFloat(kvarhLag) + parseFloat(kvarhLead);
       const readingData = {
         meterId: selectedMeter,
         readingDate: new Date().toISOString().split('T')[0],
         shift: selectedShift,
         KWH: parseFloat(kwh),
         KVAH: parseFloat(kvah),
-        KVARH: parseFloat(kvarh),
+        KVARHlag: parseFloat(kvarhLag),
+        KVARHlead: parseFloat(kvarhLead),
+        KVARH: totalKVARH,
         MD: parseFloat(md),
-        PF: parseFloat(pf),
         notes: `Recorded by ${user.username} (${user.role})`,
       };
 
       const response = await readingAPI.recordReading(readingData);
 
       if (response.success) {
-        setVals({ kwh: '', kvah: '', kvarh: '', md: '', pf: '' });
+        setVals({ kwh: '', kvah: '', kvarhLag: '', kvarhLead: '', md: '' });
+        setLocked(true);
         setAlert({ msg: `${section} reading recorded successfully!`, type: 'success' });
         onSaved?.();
         setTimeout(() => setAlert(null), 4000);
@@ -114,7 +140,7 @@ function MeterSection({ section, user, onSaved }) {
       </div>
 
       {/* Meter Selection */}
-      {meters.length > 0 && (
+      {/* {meters.length > 0 && (
         <FormField label="Select Meter">
           <select
             value={selectedMeter}
@@ -139,10 +165,10 @@ function MeterSection({ section, user, onSaved }) {
             ))}
           </select>
         </FormField>
-      )}
+      )} */}
 
       {/* Shift Selection */}
-      <FormField label="Shift">
+      {/* <FormField label="Shift">
         <select
           value={selectedShift}
           onChange={e => setSelectedShift(e.target.value)}
@@ -163,17 +189,17 @@ function MeterSection({ section, user, onSaved }) {
           <option value="2">Shift 2 (2:00 PM - 10:00 PM)</option>
           <option value="3">Shift 3 (10:00 PM - 6:00 AM)</option>
         </select>
-      </FormField>
+      </FormField> */}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 18, opacity: locked ? 0.7 : 1 }}>
         {[
           { key: 'kwh', label: 'KWH' },
           { key: 'kvah', label: 'KVAH' },
-          { key: 'kvarh', label: 'KVARH' },
-          { key: 'md', label: 'MD' },
-          { key: 'pf', label: 'Power Factor' }
+          { key: 'kvarhLag', label: 'KVARH Lag' },
+          { key: 'kvarhLead', label: 'KVARH Lead' },
+          { key: 'md', label: 'MD' }
         ].map(field => (
-          <div key={field.key} style={{ gridColumn: field.key === 'md' || field.key === 'pf' ? '1 / -1' : undefined }}>
+          <div key={field.key} style={{ gridColumn: field.key === 'md' ? '1 / -1' : undefined }}>
             <FormField label={field.label}>
               <Input
                 type="number"
@@ -181,7 +207,7 @@ function MeterSection({ section, user, onSaved }) {
                 placeholder="0.00"
                 value={vals[field.key]}
                 onChange={e => setVals(v => ({ ...v, [field.key]: e.target.value }))}
-                disabled={loading}
+                disabled={loading || locked}
               />
             </FormField>
           </div>
@@ -190,11 +216,17 @@ function MeterSection({ section, user, onSaved }) {
 
       <Btn
         onClick={handleSave}
-        disabled={loading}
-        style={{ background: loading ? '#333' : cfg.color, color: '#fff', border: 'none' }}
+        disabled={loading || locked}
+        style={{ background: loading || locked ? '#333' : cfg.color, color: '#fff', border: 'none' }}
       >
-        {loading ? 'Saving...' : 'Save Record'}
+        {locked ? 'Locked — already recorded' : loading ? 'Saving...' : 'Save Record'}
       </Btn>
+
+      {locked && (
+        <div style={{ marginTop: 12, color: '#93c5fd', fontSize: 13, fontFamily: 'var(--font-mono)' }}>
+          This meter already has a reading for the selected shift within the last 18 hours.
+        </div>
+      )}
 
       {alert && <Alert message={alert.msg} type={alert.type} />}
     </div>
@@ -203,24 +235,56 @@ function MeterSection({ section, user, onSaved }) {
 
 export default function RecorderDashboard({ user, onLogout }) {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedShift, setSelectedShift] = useState('3');
+  const [loading, setLoading] = useState(false);
 
   return (
     <>
       <TopHeader title="PEM Energy Manager" subtitle="Record Entry" onLogout={onLogout} />
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 20px' }}>
         {/* User Info */}
-        <div style={{ background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 12, padding: '14px 18px', marginBottom: 22, display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 46, height: 46, background: '#111', border: '2px solid #10B981', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>👤</div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>{user.username}</div>
-            <span style={{ display: 'inline-block', padding: '3px 10px', background: 'rgba(16,185,129,0.1)', border: '1px solid #10B981', borderRadius: 6, fontSize: 12, fontWeight: 700, color: '#10B981', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
-              {user.role}
-            </span>
+        <div style={{ background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 16, padding: '18px 22px', marginBottom: 22, display: 'grid', gridTemplateColumns: '1fr 280px', gap: 18, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div style={{ width: 52, height: 52, background: '#111', border: '2px solid #10B981', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>👤</div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 18, color: '#f8fafc' }}>{user.username}</div>
+              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 12px', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 999, fontSize: 12, fontWeight: 700, color: '#10B981', fontFamily: 'var(--font-mono)' }}>
+                  {user.role}
+                </span>
+                <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
+                  Select shift once for all three meters
+                </span>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            <span style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Selected Shift</span>
+            <select
+              value={selectedShift}
+              onChange={e => setSelectedShift(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '14px 16px',
+                background: '#111',
+                border: '1px solid #222',
+                borderRadius: 12,
+                color: '#f0f0f0',
+                fontSize: 15,
+                fontFamily: 'var(--font-display)',
+                outline: 'none',
+              }}
+              disabled={loading}
+            >
+              <option value="1">Shift 1 (6:00 AM - 2:00 PM)</option>
+              <option value="2">Shift 2 (2:00 PM - 10:00 PM)</option>
+              <option value="3">Shift 3 (10:00 PM - 6:00 AM)</option>
+            </select>
           </div>
         </div>
 
         {['SAPL', 'SMRT', 'SMC-HT'].map(section => (
-          <MeterSection key={`${section}-${refreshKey}`} section={section} user={user} onSaved={() => setRefreshKey(k => k + 1)} />
+          <MeterSection key={`${section}-${refreshKey}`} section={section} user={user} selectedShift={selectedShift} onSaved={() => setRefreshKey(k => k + 1)} />
         ))}
       </div>
     </>
