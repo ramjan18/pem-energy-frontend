@@ -30,8 +30,8 @@ const apiService = {
         shift: reading.shift || '3', // Use actual shift from API
         kwh: reading.KWH,
         kvah: reading.KVAH,
-        kvarh_lag: reading.KVARH,
-        kvarh_lead: 0, // API doesn't have separate lag/lead
+        kvarh_lag: reading.KVARHlag !== undefined ? reading.KVARHlag : reading.KVARH,
+        kvarh_lead: reading.KVARHlead !== undefined ? reading.KVARHlead : 0,
         md: reading.MD,
         recorderName: reading.recordedBy?.username || 'Unknown',
         timestamp: new Date(reading.createdAt || reading.readingDate).getTime(),
@@ -84,9 +84,11 @@ const apiService = {
       const apiData = {
         KWH: readingData.kwh,
         KVAH: readingData.kvah,
-        KVARH: readingData.kvarh_lag + readingData.kvarh_lead, // Combine lag and lead
+        KVARHlag: readingData.kvarh_lag,
+        KVARHlead: readingData.kvarh_lead,
+        KVARH: readingData.kvarh_lag + readingData.kvarh_lead,
         MD: readingData.md,
-        PF: readingData.pf || 1, // Default PF if not provided
+        PF: readingData.pf || null,
         notes: readingData.notes || '',
         editedAt: readingData.editedAt,
         editReason: readingData.editReason
@@ -313,12 +315,11 @@ function RecordsTab({ records, onRecordsChange }) {
       const updatedData = {
         KWH: kwh,
         KVAH: kvah,
-        KVARH: kvarh_lag + kvarh_lead, // Combine lag and lead
-        MD: md,
-        PF: editModal.pf || 1, // Keep existing PF if not changed
-        notes: editModal.notes || '',
-        editedAt: new Date().toISOString(),
-        editReason
+          KVARHlag: kvarh_lag,
+          KVARHlead: kvarh_lead,
+          KVARH: kvarh_lag + kvarh_lead,
+          MD: md,
+          PF: editModal.pf || null,
       };
 
       await apiService.updateReading(editModal._id, updatedData);
@@ -1068,8 +1069,8 @@ function ExportTab({ records }) {
           shift: r.shift || '3',
           kwh: r.KWH,
           kvah: r.KVAH,
-          kvarh_lag: r.KVARH || 0,
-          kvarh_lead: 0,
+          kvarh_lag: r.KVARHlag !== undefined ? r.KVARHlag : r.KVARH || 0,
+          kvarh_lead: r.KVARHlead !== undefined ? r.KVARHlead : 0,
           md: r.MD,
           recorderName: r.recordedBy?.username || 'Unknown',
           deletionReason: r.deletionReason,
