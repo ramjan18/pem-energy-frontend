@@ -40,10 +40,10 @@ function MeterSection({ section, user, onSaved }) {
     const { kwh, kvah, kvarh, md, pf } = vals;
 
     // Comprehensive validation
-    if (!selectedMeter) {
-      setAlert({ msg: 'Please select a meter.', type: 'error' });
-      return;
-    }
+    // if (!selectedMeter) {
+    //   setAlert({ msg: 'Please select a meter.', type: 'error' });
+    //   return;
+    // }
 
     if (!kwh || isNaN(parseFloat(kwh)) || parseFloat(kwh) < 0) {
       setAlert({ msg: 'Please enter a valid KWH reading (must be a positive number).', type: 'error' });
