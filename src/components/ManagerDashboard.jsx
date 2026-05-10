@@ -124,6 +124,16 @@ const apiService = {
         editReason: readingData.editReason
       };
 
+      // Add shift if provided
+      if (readingData.shift) {
+        apiData.shift = readingData.shift;
+      }
+
+      // Add meter if provided
+      if (readingData.meter) {
+        apiData.meter = readingData.meter;
+      }
+
       const response = await readingAPI.updateReading(readingId, apiData);
       return response.data;
     } catch (error) {
@@ -468,7 +478,7 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
   const yesterdayDate = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
   const showAlert = (msg, type) => { setAlert({ msg, type }); setTimeout(() => setAlert(null), 5000); };
-  const openEdit = (r) => { setEditModal(r); setEditReason(''); setEditVals({ kwh: r.kwh, kvah: r.kvah, kvarh_lag: r.kvarh_lag, kvarh_lead: r.kvarh_lead, md: r.md }); };
+  const openEdit = (r) => { setEditModal(r); setEditReason(''); setEditVals({ kwh: r.kwh, kvah: r.kvah, kvarh_lag: r.kvarh_lag, kvarh_lead: r.kvarh_lead, md: r.md, shift: r.shift, section: r.section }); };
   const openDelete = (r) => { setDeleteModal(r); setDeleteReason(''); };
 
   const handleEdit = async () => {
@@ -501,12 +511,24 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
     }
 
     try {
+      // If section changed, find the new meter ID
+      let newMeterId = editModal.meterId;
+      if (editVals.section && editVals.section !== editModal.section) {
+        // Find meter with the new section
+        const newMeter = meters.find(m => m.meterName === editVals.section);
+        if (newMeter) {
+          newMeterId = newMeter._id;
+        }
+      }
+
       const updatedData = {
         kwh: kwh,
         kvah: kvah,
         kvarh_lag: kvarh_lag,
         kvarh_lead: kvarh_lead,
         md: md,
+        shift: editVals.shift || editModal.shift,
+        meter: newMeterId,
         pf: editModal.pf || null,
         notes: editModal.notes || '',
         editReason: editReason,
@@ -718,23 +740,289 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
       </div>
 
       {editModal && (
-        <Modal title="✏️ Edit Record" subtitle="Update record values and provide a reason for modification." onClose={() => setEditModal(null)}>
-          <FormField label={`Reason for Edit (${editReason.length}/15 min)`}>
-            <textarea value={editReason} onChange={e => setEditReason(e.target.value)} placeholder="Provide detailed reason for editing this record..." style={{ width: '100%', padding: '13px 15px', background: '#111', border: `1px solid ${editReason.length >= 15 ? '#10B981' : '#222'}`, borderRadius: 8, color: '#f0f0f0', fontSize: 14, fontFamily: V.fontDisplay, resize: 'vertical', minHeight: 90, outline: 'none', boxSizing: 'border-box' }} />
-          </FormField>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
-            {Object.entries(editVals).map(([key, val]) => (
-              <FormField key={key} label={key.replace('_', ' ').toUpperCase()}>
-                <Input type="number" step="0.01" value={val} onChange={e => setEditVals(v => ({ ...v, [key]: e.target.value }))} />
-              </FormField>
-            ))}
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '16px',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: colors.surface,
+            border: `1px solid ${colors.border}`,
+            borderRadius: 16,
+            maxWidth: 600,
+            width: '100%',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.4)',
+            animation: 'slideIn 0.3s ease'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '24px',
+              borderBottom: `1px solid ${colors.border}`,
+              background: `linear-gradient(135deg, ${colors.blue}10, ${colors.purple}10)`,
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between'
+            }}>
+              <div>
+                <h2 style={{ fontSize: 20, fontWeight: 800, color: colors.text, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <MdEdit style={{ fontSize: 22, color: colors.blue }} /> Edit Record
+                </h2>
+                <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 8, fontFamily: V.fontMono }}>
+                  {editModal.date} • Shift {editModal.shift} • {editModal.section}
+                </div>
+              </div>
+              <button
+                onClick={() => setEditModal(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: 24,
+                  color: colors.textMuted,
+                  cursor: 'pointer',
+                  padding: 0,
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                <MdClose />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '24px' }}>
+              {/* Reason for Edit */}
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ fontSize: 13, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 8 }}>
+                  Reason for Edit ({editReason.length}/15 min)
+                </label>
+                <textarea
+                  value={editReason}
+                  onChange={e => setEditReason(e.target.value)}
+                  placeholder="Explain why you're modifying this record..."
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    background: colors.surface2,
+                    border: `2px solid ${editReason.length >= 15 ? '#10B981' : colors.border}`,
+                    borderRadius: 10,
+                    color: colors.text,
+                    fontSize: 13,
+                    fontFamily: V.fontDisplay,
+                    resize: 'vertical',
+                    minHeight: 80,
+                    outline: 'none',
+                    transition: 'border-color 0.2s',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 6, fontFamily: V.fontMono }}>
+                  {editReason.length >= 15 ? '✓ Reason is valid' : '✗ Minimum 15 characters required'}
+                </div>
+              </div>
+
+              {/* Shift and Meter Type Selectors */}
+              <div style={{ 
+                background: colors.surface2, 
+                border: `1px solid ${colors.border}`, 
+                borderRadius: 12, 
+                padding: 16, 
+                marginBottom: 24 
+              }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
+                  ⚙️ Configuration
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {/* Shift Selector */}
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+                      Shift
+                    </label>
+                    <select
+                      value={editVals.shift}
+                      onChange={e => setEditVals(v => ({ ...v, shift: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        background: colors.surface,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 8,
+                        color: colors.text,
+                        fontSize: 12,
+                        fontFamily: V.fontDisplay,
+                        outline: 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <option value="1">🌅 Shift 1 (6AM - 2PM)</option>
+                      <option value="2">🌞 Shift 2 (2PM - 10PM)</option>
+                      <option value="3">🌙 Shift 3 (10PM - 6AM)</option>
+                    </select>
+                  </div>
+
+                  {/* Meter Type Selector */}
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+                      Meter Type
+                    </label>
+                    <select
+                      value={editVals.section}
+                      onChange={e => setEditVals(v => ({ ...v, section: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        background: colors.surface,
+                        border: `1px solid ${colors.border}`,
+                        borderRadius: 8,
+                        color: colors.text,
+                        fontSize: 12,
+                        fontFamily: V.fontDisplay,
+                        outline: 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <option value="SAPL">📊 SAPL</option>
+                      <option value="SMRT">⚡ SMRT</option>
+                      <option value="SMC-HT">🔌 SMC-HT</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reading Values */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>
+                  📈 Reading Values
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {Object.entries(editVals).filter(([key]) => !['shift', 'section'].includes(key)).map(([key, val]) => (
+                    <div key={key}>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+                        {key.replace(/_/g, ' ')}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={val}
+                        onChange={e => setEditVals(v => ({ ...v, [key]: e.target.value }))}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          background: colors.surface2,
+                          border: `1px solid ${colors.border}`,
+                          borderRadius: 8,
+                          color: colors.text,
+                          fontSize: 13,
+                          fontFamily: V.fontMono,
+                          outline: 'none',
+                          transition: 'all 0.2s',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Info Box */}
+              <div style={{
+                background: `${colors.blue}10`,
+                border: `1px solid ${colors.blue}30`,
+                borderRadius: 10,
+                padding: 12,
+                marginBottom: 24,
+                fontSize: 12,
+                color: colors.text,
+                fontFamily: V.fontMono
+              }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 14 }}>ℹ️</span>
+                  <div>
+                    <strong>Only this record will be updated</strong>. Changes to Shift or Meter Type will apply only to this specific reading on {editModal.date}.
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <button
+                  onClick={() => setEditModal(null)}
+                  style={{
+                    padding: '12px 20px',
+                    background: colors.surface2,
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 10,
+                    color: colors.text,
+                    fontSize: 14,
+                    fontWeight: 700,
+                    fontFamily: V.fontDisplay,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseOver={e => {
+                    e.currentTarget.style.background = colors.surface2;
+                    e.currentTarget.style.borderColor = colors.blue;
+                    e.currentTarget.style.opacity = '0.8';
+                  }}
+                  onMouseOut={e => {
+                    e.currentTarget.style.background = colors.surface2;
+                    e.currentTarget.style.borderColor = colors.border;
+                    e.currentTarget.style.opacity = '1';
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleEdit}
+                  disabled={editReason.length < 15}
+                  style={{
+                    padding: '12px 20px',
+                    background: editReason.length >= 15 ? colors.green : colors.textDim,
+                    border: 'none',
+                    borderRadius: 10,
+                    color: '#fff',
+                    fontSize: 14,
+                    fontWeight: 700,
+                    fontFamily: V.fontDisplay,
+                    cursor: editReason.length >= 15 ? 'pointer' : 'not-allowed',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    opacity: editReason.length >= 15 ? 1 : 0.5
+                  }}
+                  onMouseOver={e => {
+                    if (editReason.length >= 15) {
+                      e.currentTarget.style.background = '#059669';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = `0 8px 16px ${colors.green}40`;
+                    }
+                  }}
+                  onMouseOut={e => {
+                    e.currentTarget.style.background = colors.green;
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  <MdCheckCircle style={{ fontSize: 16 }} />
+                  Save Changes
+                </button>
+              </div>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Btn variant="secondary" onClick={() => setEditModal(null)} style={{ flex: 1 }}>Cancel</Btn>
-            <Btn onClick={handleEdit} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><MdCheckCircle /> Save Changes</Btn>
-          </div>
-        </Modal>
+        </div>
       )}
+
 
       {deleteModal && (
         <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><MdDelete style={{ fontSize: 20 }} /> Delete Record</span>} subtitle="⚠️ This action cannot be undone." onClose={() => setDeleteModal(null)}>
@@ -762,8 +1050,7 @@ function PendingTab({ records, meters, onRecordsChange }) {
   const [fillModal, setFillModal] = useState(null);
   const [fillValues, setFillValues] = useState({});
   const [hoveredCard, setHoveredCard] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const GROUPS_PER_PAGE = 5;
+  const GROUPS_PER_PAGE = Infinity; // Show all groups without pagination limit
 
   const showAlert = (msg, type) => { setAlert({ msg, type }); setTimeout(() => setAlert(null), 5000); };
 
@@ -775,6 +1062,10 @@ function PendingTab({ records, meters, onRecordsChange }) {
   const calculatePendingReadings = () => {
     setLoading(true);
     try {
+      console.log('Calculating pending readings - Records count:', records.length, 'Meters count:', meters.length);
+      console.log('Records sample:', records.slice(0, 2));
+      console.log('Meters sample:', meters.slice(0, 2));
+      
       const DAYS_TO_CHECK = 30;
       const today = new Date();
       today.setHours(0, 0, 0, 0); // Reset to start of day
@@ -795,7 +1086,10 @@ function PendingTab({ records, meters, onRecordsChange }) {
           for (const shift of ['1', '2', '3']) {
             // Check if a reading exists for this meter-shift-date combo
             const exists = records.some(r => {
-              const matches = r.section === meter.meterName && r.shift === String(shift) && r.date === dateStr;
+              const shiftMatch = r.shift === String(shift);
+              const dateMatch = r.date === dateStr;
+              const sectionMatch = r.section === meter.meterName;
+              const matches = sectionMatch && shiftMatch && dateMatch;
               return matches;
             });
 
@@ -904,11 +1198,8 @@ function PendingTab({ records, meters, onRecordsChange }) {
     });
   }, [pendingReadings]);
 
-  // Pagination for grouped pending readings
-  const totalGroups = groupedPending.length;
-  const totalPages = Math.ceil(totalGroups / GROUPS_PER_PAGE);
-  const startIndex = (currentPage - 1) * GROUPS_PER_PAGE;
-  const paginatedGroups = groupedPending.slice(startIndex, startIndex + GROUPS_PER_PAGE);
+  // No pagination - show all groups
+  const paginatedGroups = groupedPending;
 
   if (loading && pendingReadings.length === 0) {
     return <div style={{ textAlign: 'center', padding: 48, color: colors.textMuted, fontSize: 14 }}>Analyzing records...</div>;
@@ -1034,16 +1325,6 @@ function PendingTab({ records, meters, onRecordsChange }) {
           );
         })}
       </div>
-
-      {totalPages > 1 && (
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={setCurrentPage}
-          itemsPerPage={GROUPS_PER_PAGE}
-          totalItems={totalGroups}
-        />
-      )}
 
       {fillModal && (
         <Modal title="📝 Fill Pending Reading" subtitle={`${fillModal.meterName} • Shift ${fillModal.shift} • ${formatDate(fillModal.date)}`} onClose={() => setFillModal(null)}>
@@ -1240,7 +1521,7 @@ function LiveDashboardTab({ records }) {
           <div style={{ width: 4, height: 28, background: 'linear-gradient(180deg,#10B981,#2563EB)', borderRadius: 4 }} />
           <div>
             <h2 style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em' }}>Live Dashboard</h2>
-            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: V.fontMono, marginTop: 2 }}>SHIFT 3 · {formatDate(today)}</div>
+            <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: V.fontMono, marginTop: 2 }}>SHIFT 3 · {formatDate(yesterdayDate)} (Yesterday)</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -1252,7 +1533,7 @@ function LiveDashboardTab({ records }) {
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16, marginBottom: 28 }}>
         {METERS.map(({ key, label, multiplier, mdMultiplier, color, accent, glow }) => {
-          const { todayReading, yestReading, dc, actualMD, pf, hasData } = getStatsForMeterOnDate(key, multiplier, mdMultiplier, today);
+          const { todayReading, yestReading, dc, actualMD, pf, hasData } = getStatsForMeterOnDate(key, multiplier, mdMultiplier, yesterdayDate);
           return (
             <div key={key} style={{ background: colors.surface2, border: `1px solid ${hasData ? color + '33' : colors.border}`, borderRadius: 16, padding: '24px 24px 20px', position: 'relative', overflow: 'hidden', boxShadow: hasData ? `0 0 30px ${glow}` : 'none' }}>
               <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg,${color},${accent})` }} />
@@ -1265,9 +1546,9 @@ function LiveDashboardTab({ records }) {
                 <div style={{ marginLeft: 'auto', width: 8, height: 8, borderRadius: '50%', background: hasData ? color : colors.border, boxShadow: hasData ? `0 0 8px ${color}` : 'none' }} />
               </div>
               {[
-                { icon: MdCalendarMonth, label: 'Today Reading', value: todayReading, unit: 'kWh', color: '#94A3B8' },
-                { icon: MdAccessTime, label: 'Yesterday Reading', value: yestReading, unit: 'kWh', color: '#64748B' },
-                { icon: MdBolt, label: 'Daily Consumption', value: dc, unit: 'kWh', color, bold: true },
+                { icon: MdCalendarMonth, label: 'Yesterday Shift 3', value: todayReading, unit: 'kWh', color: '#94A3B8' },
+                { icon: MdAccessTime, label: 'Day Before Shift 3', value: yestReading, unit: 'kWh', color: '#64748B' },
+                { icon: MdBolt, label: 'Yesterday Consumption', value: dc, unit: 'kWh', color, bold: true },
                 { icon: MdTrendingUp, label: 'Actual MD', value: actualMD, unit: 'kW', color: accent },
                 { icon: MdShowChart, label: 'Power Factor', value: pf, unit: 'PF', color: '#F59E0B' },
               ].map((row, i) => {
