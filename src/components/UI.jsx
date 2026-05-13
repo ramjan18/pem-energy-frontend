@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { MdLightMode, MdNightlightRound, MdLogout } from 'react-icons/md';
+import { MdLightMode, MdNightlightRound, MdLogout, MdVisibility, MdVisibilityOff } from 'react-icons/md';
 
 /* ---- HEADER ---- */
 export function TopHeader({ title, subtitle, onLogout, isMobileDrawerOpen }) {
@@ -132,6 +132,8 @@ export function Select({ children, style, ...props }) {
 export function PasswordInput({ id, placeholder, value, onChange, style }) {
   const [show, setShow] = useState(false);
   const [focused, setFocused] = useState(false);
+  const { colors } = useTheme();
+  
   return (
     <div style={{ position: 'relative' }}>
       <input
@@ -147,9 +149,35 @@ export function PasswordInput({ id, placeholder, value, onChange, style }) {
       <button
         type="button"
         onClick={() => setShow(s => !s)}
-        style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}
+        style={{
+          position: 'absolute',
+          right: 14,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          background: 'none',
+          border: 'none',
+          color: focused ? '#2563EB' : '#666',
+          cursor: 'pointer',
+          fontSize: 20,
+          padding: '6px 8px',
+          borderRadius: 6,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          transition: 'all 0.2s ease',
+          opacity: focused ? 1 : 0.7,
+        }}
+        onMouseOver={e => {
+          e.currentTarget.style.background = 'rgba(37, 99, 235, 0.1)';
+          e.currentTarget.style.color = '#2563EB';
+        }}
+        onMouseOut={e => {
+          e.currentTarget.style.background = 'none';
+          e.currentTarget.style.color = focused ? '#2563EB' : '#666';
+        }}
+        title={show ? 'Hide password' : 'Show password'}
       >
-        {show ? '🙈' : '👁️'}
+        {show ? <MdVisibilityOff style={{ fontSize: 20 }} /> : <MdVisibility style={{ fontSize: 20 }} />}
       </button>
     </div>
   );

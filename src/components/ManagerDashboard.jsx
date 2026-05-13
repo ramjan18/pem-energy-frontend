@@ -3,6 +3,7 @@ import { readingAPI, meterAPI, authAPI } from '../api.js';
 import { useTheme } from '../context/ThemeContext';
 import Pagination from './Pagination';
 import ManagerDrawer from './ManagerDrawer';
+import LiveClock from './LiveClock';
 import { MdDescription, MdDeleteOutline, MdPeople, MdFileDownload, MdEdit, MdDelete, MdCalendarMonth, MdAccessTime, MdShowChart, MdTrendingUp, MdAssignment, MdClose, MdCheckCircle, MdError } from 'react-icons/md';
 import { MdBolt } from "react-icons/md";
 import {
@@ -2305,6 +2306,7 @@ export default function ManagerDashboard({ user, onLogout }) {
         <TopHeader title="PEM Energy Manager" subtitle={`Manager Dashboard${user ? ` · ${user.username}` : ''}`} onLogout={onLogout} isMobileDrawerOpen={mobileDrawerOpen} />
 
         <div style={{ flex: 1, maxWidth: '100%', padding: isMobile ? (window.innerWidth <= 480 ? '12px' : '16px') : '24px 28px', overflowY: 'auto', paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}>
+          <LiveClock />
           {/* Tab content */}
           <div key={activeTab} style={{ animation: 'fadeIn 0.25s ease' }}>
             {error && (

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { authAPI, tokenAPI } from '../api';
 import { FormField, PasswordInput, Input, Btn, Alert } from './UI';
+import LiveClock from './LiveClock';
 
 export default function ManagerLogin({ onBack, onLogin }) {
   const [username, setUsername] = useState('');
@@ -54,6 +55,8 @@ export default function ManagerLogin({ onBack, onLogin }) {
             <p style={{ color: '#555', fontSize: 13, fontFamily: 'var(--font-mono)' }}>Access administrative functions</p>
           </div>
         </div>
+
+        <LiveClock />
 
         <form onSubmit={handleSubmit}>
           <FormField label="Username">

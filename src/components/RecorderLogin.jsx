@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { authAPI, tokenAPI } from '../api';
 import { FormField, PasswordInput, Input, Btn, Alert } from './UI';
+import LiveClock from './LiveClock';
 
 export default function RecorderLogin({ onBack, onLogin }) {
   const [username, setUsername] = useState('');
@@ -59,6 +60,8 @@ export default function RecorderLogin({ onBack, onLogin }) {
             <p style={{ color: '#555', fontSize: 13, fontFamily: 'var(--font-mono)' }}>Enter energy meter readings</p>
           </div>
         </div>
+
+        <LiveClock />
 
         <form onSubmit={handleLogin}>
           <FormField label="Username">
