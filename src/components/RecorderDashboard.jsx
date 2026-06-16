@@ -4,7 +4,7 @@ import { TopHeader, Alert, FormField, Input, Btn } from './UI';
 import {  MdShowChart, MdSettingsInputComponent } from 'react-icons/md';
 import { MdBolt } from "react-icons/md";
 import { MdWbSunny, MdWbTwilight, MdNightlight } from 'react-icons/md';
-import { MdChevronLeft, MdChevronRight, MdHistory, MdShare } from 'react-icons/md';
+import { MdChevronLeft, MdChevronRight, MdHistory, MdShare, MdClose } from 'react-icons/md';
 import LiveClock from './LiveClock';
 const SECTION_CONFIG = {
   'SMRT': { icon: MdBolt, color: '#4169E1', label: 'SMRT' },
@@ -277,7 +277,7 @@ MD: ${reading.md.toFixed(2)}`;
         </select>
       </FormField> */}
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: isMobile ? 10 : 14, marginBottom: 18, opacity: (locked && selectedDate === today) ? 0.7 : 1 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: isMobile ? 10 : 14, marginBottom: 18, opacity: (locked && selectedDate === today) ? 1 : 1 }}>
         {[
           { key: 'kwh', label: 'KWH' },
           { key: 'kvah', label: 'KVAH' },
@@ -287,20 +287,19 @@ MD: ${reading.md.toFixed(2)}`;
         ].map(field => (
           <div key={field.key} style={{ gridColumn: field.key === 'md' && !isMobile ? '1 / -1' : undefined }}>
             <FormField label={field.label}>
-              {selectedDate && selectedDate !== today && viewingReading ? (
+              {(selectedDate && selectedDate !== today && viewingReading) || (locked && selectedDate === today && lockedReading) ? (
                 <div style={{
                   width: '100%',
                   padding: '13px 15px',
                   background: '#111',
-                  border: '1px solid #222',
+                  border: `2px solid ${cfg.color}40`,
                   borderRadius: 8,
-                  color: '#f0f0f0',
-                  fontSize: 15,
+                  color: cfg.color,
+                  fontSize: 16,
                   fontFamily: 'var(--font-mono)',
                   fontWeight: 700,
-                  color: cfg.color,
                 }}>
-                  {viewingReading[field.key]?.toFixed(2) || 'N/A'}
+                  {(viewingReading?.[field.key] ?? lockedReading?.[field.key])?.toFixed(2) || 'N/A'}
                 </div>
               ) : (
                 <Input
@@ -339,72 +338,51 @@ MD: ${reading.md.toFixed(2)}`;
       </Btn>
 
       {selectedDate && selectedDate !== today && viewingReading && (
-        <button 
-          onClick={() => handleShareToWhatsApp(viewingReading)}
-          style={{ marginTop: 12, width: '100%', padding: '12px 14px', background: '#25D366', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 14, fontFamily: 'var(--font-display)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s' }}
-          onMouseOver={e => {
-            e.currentTarget.style.background = '#1eaa54';
-            e.currentTarget.style.boxShadow = '0 0 12px rgba(37, 211, 102, 0.4)';
-          }}
-          onMouseOut={e => {
-            e.currentTarget.style.background = '#25D366';
-            e.currentTarget.style.boxShadow = 'none';
-          }}
-        >
-          <MdShare style={{ fontSize: 18 }} />
-          Share to WhatsApp
-        </button>
-      )}
-
-      {locked && lockedReading && (
         <div style={{ marginTop: 16, background: `${cfg.color}10`, border: `1px solid ${cfg.color}40`, borderRadius: 12, padding: '16px', animation: 'fadeIn 0.3s ease' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: cfg.color, fontWeight: 700, fontSize: 13 }}>
-            ✓ Reading Saved at {lockedReading.time}
+            📅 Viewing Past Reading
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: 10 }}>
             {[
-              { key: 'kwh', label: 'KWH', value: lockedReading.kwh },
-              { key: 'kvah', label: 'KVAH', value: lockedReading.kvah },
-              { key: 'kvarhLag', label: 'KVARH Lag', value: lockedReading.kvarhLag },
-              { key: 'kvarhLead', label: 'KVARH Lead', value: lockedReading.kvarhLead },
-              { key: 'md', label: 'MD', value: lockedReading.md }
+              { key: 'kwh', label: 'KWH', value: viewingReading.kwh },
+              { key: 'kvah', label: 'KVAH', value: viewingReading.kvah },
+              { key: 'kvarhLag', label: 'KVARH Lag', value: viewingReading.kvarhLag },
+              { key: 'kvarhLead', label: 'KVARH Lead', value: viewingReading.kvarhLead },
+              { key: 'md', label: 'MD', value: viewingReading.md }
             ].map(field => (
-              <div key={field.key} style={{ background: '#111', border: '1px solid #222', borderRadius: 8, padding: '10px 12px' }}>
-                <div style={{ fontSize: 10, color: '#888', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', marginBottom: 4 }}>{field.label}</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: cfg.color, fontFamily: 'var(--font-mono)' }}>{field.value.toFixed(2)}</div>
+              <div key={field.key} style={{ background: '#111', border: `2px solid ${cfg.color}40`, borderRadius: 8, padding: '12px', transition: 'all 0.2s' }}>
+                <div style={{ fontSize: 10, color: '#888', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', marginBottom: 6 }}>{field.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: cfg.color, fontFamily: 'var(--font-mono)' }}>{field.value.toFixed(2)}</div>
               </div>
             ))}
           </div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 12, fontFamily: 'var(--font-mono)' }}>⏰ Recorded at {viewingReading.time}</div>
+        </div>
+      )}
+
+      {locked && lockedReading && (
+        <div style={{ marginTop: 12, padding: '12px 16px', background: `${cfg.color}20`, border: `2px solid ${cfg.color}`, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, animation: 'fadeIn 0.3s ease', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontSize: 18, color: cfg.color }}>✓</div>
+            <div>
+              <div style={{ color: cfg.color, fontWeight: 700, fontSize: 13 }}>Reading Saved Successfully</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginTop: 2 }}>📅 {lockedReading.date} at {lockedReading.time}</div>
+            </div>
+          </div>
           <button 
             onClick={() => setShowHistory(!showHistory)}
-            style={{ marginTop: 12, width: '100%', padding: '10px 14px', background: `${cfg.color}20`, border: `1px solid ${cfg.color}`, borderRadius: 8, color: cfg.color, fontWeight: 700, cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font-display)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s' }}
+            style={{ padding: '8px 12px', background: `${cfg.color}30`, border: `1px solid ${cfg.color}`, borderRadius: 6, color: cfg.color, fontWeight: 700, cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-display)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.2s', whiteSpace: 'nowrap' }}
             onMouseOver={e => {
+              e.currentTarget.style.background = `${cfg.color}40`;
+              e.currentTarget.style.boxShadow = `0 0 8px ${cfg.color}40`;
+            }}
+            onMouseOut={e => {
               e.currentTarget.style.background = `${cfg.color}30`;
-              e.currentTarget.style.boxShadow = `0 0 12px ${cfg.color}40`;
-            }}
-            onMouseOut={e => {
-              e.currentTarget.style.background = `${cfg.color}20`;
               e.currentTarget.style.boxShadow = 'none';
             }}
           >
-            <MdHistory style={{ fontSize: 16 }} />
-            {showHistory ? 'Hide' : 'Show'} Previous Readings
-          </button>
-
-          <button 
-            onClick={() => handleShareToWhatsApp(lockedReading)}
-            style={{ marginTop: 12, width: '100%', padding: '10px 14px', background: '#25D366', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 13, fontFamily: 'var(--font-display)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s' }}
-            onMouseOver={e => {
-              e.currentTarget.style.background = '#1eaa54';
-              e.currentTarget.style.boxShadow = '0 0 12px rgba(37, 211, 102, 0.4)';
-            }}
-            onMouseOut={e => {
-              e.currentTarget.style.background = '#25D366';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-          >
-            <MdShare style={{ fontSize: 16 }} />
-            Share to WhatsApp
+            <MdHistory style={{ fontSize: 14 }} />
+            {showHistory ? 'Hide' : 'Show'} History
           </button>
         </div>
       )}
@@ -512,6 +490,14 @@ export default function RecorderDashboard({ user, onLogout }) {
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [selectedDate, setSelectedDate] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showBulkShareModal, setShowBulkShareModal] = useState(false);
+  const [bulkShareSelectedMeters, setBulkShareSelectedMeters] = useState({
+    SAPL: false,
+    SMRT: false,
+    'SMC-HT': false,
+  });
+  const [meterReadings, setMeterReadings] = useState({});
+  const [bulkShareLoading, setBulkShareLoading] = useState(false);
 
   // Detect window resize to toggle mobile view
   useEffect(() => {
@@ -523,6 +509,93 @@ export default function RecorderDashboard({ user, onLogout }) {
   }, []);
 
   const today = new Date().toISOString().split('T')[0];
+
+  // Fetch readings for bulk share
+  const handleOpenBulkShareModal = async () => {
+    setShowBulkShareModal(true);
+    setBulkShareLoading(true);
+    setBulkShareSelectedMeters({ SAPL: true, SMRT: true, 'SMC-HT': true }); // Auto-select all
+
+    // Use selected date or today if no date selected
+    const dateToShare = selectedDate || today;
+
+    try {
+      const readings = {};
+      for (const meter of ['SAPL', 'SMRT', 'SMC-HT']) {
+        // Get all meters for this section
+        const metersResponse = await meterAPI.getAllMeters({ meterName: meter, isActive: true });
+        if (metersResponse.data && metersResponse.data.length > 0) {
+          const meterId = metersResponse.data[0]._id;
+          // Get readings for this meter on the selected date
+          const readingsResponse = await readingAPI.getReadings({
+            meterId,
+            limit: 100,
+          });
+          const readingForDate = readingsResponse.data?.find(r => {
+            const readDate = (r.readingDate || '').split('T')[0];
+            return readDate === dateToShare;
+          });
+          if (readingForDate) {
+            readings[meter] = {
+              kwh: readingForDate.KWH,
+              kvah: readingForDate.KVAH,
+              kvarhLag: readingForDate.KVARHlag,
+              kvarhLead: readingForDate.KVARHlead,
+              md: readingForDate.MD,
+            };
+          }
+        }
+      }
+      setMeterReadings(readings);
+    } catch (error) {
+      console.error('Failed to fetch readings for bulk share:', error);
+      alert('Failed to fetch some meter readings');
+    } finally {
+      setBulkShareLoading(false);
+    }
+  };
+
+  // Generate bulk share message
+  const generateBulkShareMessage = () => {
+    const dateToShare = selectedDate || today;
+    const dateDisplay = dateToShare === today 
+      ? `Today - ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`
+      : new Date(dateToShare).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    
+    let message = `📊 Meter Readings Report\nDate: ${dateDisplay}\n\n`;
+
+    if (bulkShareSelectedMeters.SAPL && meterReadings.SAPL) {
+      const r = meterReadings.SAPL;
+      message += `━━ SAPL ━━\nKWH: ${r.kwh.toFixed(2)}\nKVAH: ${r.kvah.toFixed(2)}\nKVARH LAG: ${r.kvarhLag.toFixed(2)}\nKVARH LEAD: ${r.kvarhLead.toFixed(2)}\nMD: ${r.md.toFixed(2)}\n\n`;
+    }
+
+    if (bulkShareSelectedMeters.SMRT && meterReadings.SMRT) {
+      const r = meterReadings.SMRT;
+      message += `━━ SMRT ━━\nKWH: ${r.kwh.toFixed(2)}\nKVAH: ${r.kvah.toFixed(2)}\nKVARH LAG: ${r.kvarhLag.toFixed(2)}\nKVARH LEAD: ${r.kvarhLead.toFixed(2)}\nMD: ${r.md.toFixed(2)}\n\n`;
+    }
+
+    if (bulkShareSelectedMeters['SMC-HT'] && meterReadings['SMC-HT']) {
+      const r = meterReadings['SMC-HT'];
+      message += `━━ SMC-HT ━━\nKWH: ${r.kwh.toFixed(2)}\nKVAH: ${r.kvah.toFixed(2)}\nKVARH LAG: ${r.kvarhLag.toFixed(2)}\nKVARH LEAD: ${r.kvarhLead.toFixed(2)}\nMD: ${r.md.toFixed(2)}`;
+    }
+
+    return message;
+  };
+
+  // Handle bulk share to WhatsApp
+  const handleBulkShareToWhatsApp = () => {
+    const selectedCount = Object.values(bulkShareSelectedMeters).filter(Boolean).length;
+    if (selectedCount === 0) {
+      alert('Please select at least one meter');
+      return;
+    }
+
+    const message = generateBulkShareMessage();
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+    window.open(whatsappUrl, '_blank');
+    setShowBulkShareModal(false);
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#030303', color: '#f0f0f0', fontFamily: 'var(--font-display)', display: 'flex', flexDirection: 'column', paddingBottom: 'env(safe-area-inset-bottom)' }}>
@@ -541,40 +614,76 @@ export default function RecorderDashboard({ user, onLogout }) {
             )}
           </div>
           
-          <input
-            type="date"
-            value={selectedDate || today}
-            onChange={e => {
-              const newDate = e.target.value;
-              if (newDate === today) {
-                setSelectedDate(null);
-              } else if (newDate < today) {
-                setSelectedDate(newDate);
-              }
-            }}
-            max={today}
-            style={{
-              padding: '12px 16px',
-              background: '#111',
-              border: '1px solid #222',
-              borderRadius: 8,
-              color: '#f0f0f0',
-              fontSize: 16,
-              fontFamily: 'var(--font-mono)',
-              cursor: 'pointer',
-              outline: 'none',
-              width: isMobile ? '100%' : '300px',
-              transition: 'all 0.2s',
-            }}
-            onMouseOver={e => {
-              e.currentTarget.style.borderColor = '#10B981';
-              e.currentTarget.style.boxShadow = '0 0 8px rgba(16, 185, 129, 0.2)';
-            }}
-            onMouseOut={e => {
-              e.currentTarget.style.borderColor = '#222';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-          />
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+            <input
+              type="date"
+              value={selectedDate || today}
+              onChange={e => {
+                const newDate = e.target.value;
+                if (newDate === today) {
+                  setSelectedDate(null);
+                } else if (newDate < today) {
+                  setSelectedDate(newDate);
+                }
+              }}
+              max={today}
+              style={{
+                padding: '12px 16px',
+                background: '#111',
+                border: '1px solid #222',
+                borderRadius: 8,
+                color: '#f0f0f0',
+                fontSize: 16,
+                fontFamily: 'var(--font-mono)',
+                cursor: 'pointer',
+                outline: 'none',
+                width: isMobile ? '100%' : '300px',
+                transition: 'all 0.2s',
+              }}
+              onMouseOver={e => {
+                e.currentTarget.style.borderColor = '#10B981';
+                e.currentTarget.style.boxShadow = '0 0 8px rgba(16, 185, 129, 0.2)';
+              }}
+              onMouseOut={e => {
+                e.currentTarget.style.borderColor = '#222';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+            />
+
+            <button
+              onClick={handleOpenBulkShareModal}
+              style={{
+                padding: '12px 16px',
+                background: '#25D366',
+                border: 'none',
+                borderRadius: 8,
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                fontFamily: 'var(--font-display)',
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap',
+              }}
+              onMouseOver={e => {
+                e.currentTarget.style.background = '#1eaa54';
+                e.currentTarget.style.boxShadow = '0 0 12px rgba(37, 211, 102, 0.4)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseOut={e => {
+                e.currentTarget.style.background = '#25D366';
+                e.currentTarget.style.boxShadow = 'none';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              <MdShare style={{ fontSize: 18 }} />
+              {isMobile ? 'Share' : 'Share All'}
+            </button>
+          </div>
         </div>
         {/* User Info */}
         <div style={{ background: '#0f0f0f', border: '1px solid #1f1f1f', borderRadius: 16, padding: isMobile ? '14px 16px' : '18px 22px', marginBottom: 22, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 280px', gap: isMobile ? 14 : 18, alignItems: 'center' }}>
@@ -652,6 +761,227 @@ export default function RecorderDashboard({ user, onLogout }) {
           <MeterSection key={`${section}-${refreshKey}`} section={section} user={user} selectedShift={selectedShift} onSaved={() => setRefreshKey(k => k + 1)} selectedDate={selectedDate} />
         ))}
       </div>
+
+      {/* Bulk Share Modal */}
+      {showBulkShareModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '20px',
+          backdropFilter: 'blur(4px)',
+        }}>
+          <div style={{
+            background: '#0f0f0f',
+            border: '2px solid #25D366',
+            borderRadius: 16,
+            padding: '24px',
+            maxWidth: '500px',
+            width: '100%',
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            boxShadow: '0 20px 60px rgba(37, 211, 102, 0.2)',
+            animation: 'fadeIn 0.3s ease'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10, color: '#25D366' }}>
+                <MdShare style={{ fontSize: 22 }} />
+                Share All Meters
+              </div>
+              <button
+                onClick={() => setShowBulkShareModal(false)}
+                style={{
+                  background: '#111',
+                  border: '1px solid #222',
+                  borderRadius: 8,
+                  color: '#f0f0f0',
+                  padding: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s',
+                }}
+                onMouseOver={e => {
+                  e.currentTarget.style.background = '#222';
+                  e.currentTarget.style.borderColor = '#333';
+                }}
+                onMouseOut={e => {
+                  e.currentTarget.style.background = '#111';
+                  e.currentTarget.style.borderColor = '#222';
+                }}
+              >
+                <MdClose style={{ fontSize: 20 }} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: 13, color: '#f0f0f0', marginBottom: 20, padding: '12px 14px', background: '#111', borderRadius: 8, border: '1px solid #222', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 16 }}>📅</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                {(selectedDate || today) === today 
+                  ? `Today - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                  : new Date(selectedDate || today).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                }
+              </span>
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#cbd5e1', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Select Meters to Share:</div>
+
+              {['SAPL', 'SMRT', 'SMC-HT'].map(meter => {
+                const METER_CONFIG = {
+                  'SMRT': { icon: MdBolt, color: '#4169E1' },
+                  'SAPL': { icon: MdShowChart, color: '#10B981' },
+                  'SMC-HT': { icon: MdSettingsInputComponent, color: '#8B5CF6' },
+                };
+                const cfg = METER_CONFIG[meter];
+                const Icon = cfg.icon;
+
+                return (
+                  <div key={meter} style={{
+                    display: 'flex',
+                    alignItems: 'stretch',
+                    gap: 12,
+                    padding: '14px',
+                    background: bulkShareSelectedMeters[meter] ? `${cfg.color}10` : '#111',
+                    border: `2px solid ${bulkShareSelectedMeters[meter] ? cfg.color : '#222'}`,
+                    borderRadius: 8,
+                    marginBottom: 10,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onClick={() => setBulkShareSelectedMeters(prev => ({
+                    ...prev,
+                    [meter]: !prev[meter]
+                  }))}
+                  onMouseOver={e => {
+                    e.currentTarget.style.background = `${cfg.color}15`;
+                    e.currentTarget.style.borderColor = cfg.color;
+                    e.currentTarget.style.transform = 'translateX(4px)';
+                  }}
+                  onMouseOut={e => {
+                    e.currentTarget.style.background = bulkShareSelectedMeters[meter] ? `${cfg.color}10` : '#111';
+                    e.currentTarget.style.borderColor = bulkShareSelectedMeters[meter] ? cfg.color : '#222';
+                    e.currentTarget.style.transform = 'translateX(0)';
+                  }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingRight: 4 }}>
+                      <input
+                        type="checkbox"
+                        checked={bulkShareSelectedMeters[meter]}
+                        onChange={() => {}}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          cursor: 'pointer',
+                          accentColor: cfg.color,
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: cfg.color, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Icon style={{ fontSize: 16 }} />
+                        {meter}
+                      </div>
+                      {meterReadings[meter] ? (
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <div style={{ background: `${cfg.color}10`, border: `1px solid ${cfg.color}40`, borderRadius: 4, padding: '6px 8px', fontSize: 11 }}>
+                            <div style={{ color: '#888', fontSize: 9, marginBottom: 2 }}>KWH</div>
+                            <div style={{ color: cfg.color, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{meterReadings[meter].kwh.toFixed(2)}</div>
+                          </div>
+                          <div style={{ background: `${cfg.color}10`, border: `1px solid ${cfg.color}40`, borderRadius: 4, padding: '6px 8px', fontSize: 11 }}>
+                            <div style={{ color: '#888', fontSize: 9, marginBottom: 2 }}>MD</div>
+                            <div style={{ color: cfg.color, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{meterReadings[meter].md.toFixed(2)}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 12, color: '#666', marginTop: 6 }}>
+                          ⚠️ No data for this date
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <button
+                onClick={() => setShowBulkShareModal(false)}
+                style={{
+                  padding: '12px 16px',
+                  background: '#111',
+                  border: '1px solid #222',
+                  borderRadius: 8,
+                  color: '#f0f0f0',
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-display)',
+                  transition: 'all 0.2s',
+                }}
+                onMouseOver={e => {
+                  e.currentTarget.style.background = '#222';
+                  e.currentTarget.style.borderColor = '#333';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseOut={e => {
+                  e.currentTarget.style.background = '#111';
+                  e.currentTarget.style.borderColor = '#222';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkShareToWhatsApp}
+                disabled={!Object.values(bulkShareSelectedMeters).some(v => v) || bulkShareLoading}
+                style={{
+                  padding: '12px 16px',
+                  background: Object.values(bulkShareSelectedMeters).some(v => v) && !bulkShareLoading ? '#25D366' : '#333',
+                  border: 'none',
+                  borderRadius: 8,
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: Object.values(bulkShareSelectedMeters).some(v => v) && !bulkShareLoading ? 'pointer' : 'not-allowed',
+                  fontFamily: 'var(--font-display)',
+                  transition: 'all 0.2s',
+                  opacity: Object.values(bulkShareSelectedMeters).some(v => v) && !bulkShareLoading ? 1 : 0.5,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                }}
+                onMouseOver={e => {
+                  if (Object.values(bulkShareSelectedMeters).some(v => v) && !bulkShareLoading) {
+                    e.currentTarget.style.background = '#1eaa54';
+                    e.currentTarget.style.boxShadow = '0 0 12px rgba(37, 211, 102, 0.4)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }
+                }}
+                onMouseOut={e => {
+                  if (Object.values(bulkShareSelectedMeters).some(v => v) && !bulkShareLoading) {
+                    e.currentTarget.style.background = '#25D366';
+                    e.currentTarget.style.boxShadow = 'none';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }
+                }}
+              >
+                <MdShare style={{ fontSize: 16 }} />
+                {bulkShareLoading ? 'Loading...' : 'Share to WhatsApp'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
    
   );

@@ -237,6 +237,8 @@ function TopHeader({ title, subtitle, onLogout, isMobileDrawerOpen }) {
     }
   };
 
+  const today = new Date().toISOString().split('T')[0];
+
   return (
     <div style={styles.container}>
       {/* Left side: Brand/Title */}
@@ -445,8 +447,8 @@ function DataTable({ headers, children, emptyMessage }) {
 // ─────────────────────────────────────────────
 const METERS = [
   { key: 'SAPL', label: 'SAPL', multiplier: 70, mdMultiplier: 70, color: '#2563EB', accent: '#3B82F6', glow: 'rgba(37,99,235,0.15)' },
-  { key: 'SMRT', label: 'SMRT', multiplier: 80, mdMultiplier: 80, color: '#10B981', accent: '#34D399', glow: 'rgba(16,185,129,0.15)' },
-  { key: 'SMC-HT', label: 'SMC HT', multiplier: 4, mdMultiplier: 80, color: '#8B5CF6', accent: '#A78BFA', glow: 'rgba(139,92,246,0.15)' },
+  { key: 'SMRT', label: 'SMRT', multiplier: 10, mdMultiplier: 10, color: '#10B981', accent: '#34D399', glow: 'rgba(16,185,129,0.15)' },
+  { key: 'SMC-HT', label: 'SMC HT', multiplier: 4, mdMultiplier: 4, color: '#8B5CF6', accent: '#A78BFA', glow: 'rgba(139,92,246,0.15)' },
 ];
 const M_ORDER = ['SAPL', 'SMRT', 'SMC-HT'];
 const getMeter = (sec) => METERS.find(m => m.key === sec);
@@ -736,7 +738,7 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
         <span>Computed columns (Daily Consumption → PF)</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
         <span>Daily = (Today − Yesterday) × multiplier</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
         <span>MD = Max of current month × MD multiplier</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
-        <span>SMC-HT: Consumption ×4 · MD ×80</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
+        <span>SMRT: ×10 · SMC-HT: ×4</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
         <span>PF = KWH / √(KWH² + (Lag+Lead)²)</span>
       </div>
 
