@@ -8,7 +8,7 @@ import ManagerDashboard from './components/ManagerDashboard';
 import RecorderDashboard from './components/RecorderDashboard';
 
 function AppContent() {
-  const [screen, setScreen] = useState('welcome'); // welcome | managerLogin | recorderLogin | manager | recorder
+  const [screen, setScreen] = useState('welcome');
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
@@ -21,7 +21,7 @@ function AppContent() {
         try {
           const user = JSON.parse(savedUser);
           setCurrentUser(user);
-          setScreen(user.role === 'manager' ? 'manager' : 'recorder');
+          setScreen(user.role === 'admin' ? 'admin' : user.role === 'manager' ? 'manager' : 'recorder');
         } catch (e) {
           console.error('Failed to parse saved user:', e);
           tokenAPI.removeToken();
@@ -34,7 +34,7 @@ function AppContent() {
     setCurrentUser(user);
     // Save user info to localStorage
     localStorage.setItem('currentUser', JSON.stringify(user));
-    setScreen(user.role === 'manager' ? 'manager' : 'recorder');
+    setScreen(user.role === 'admin' ? 'admin' : user.role === 'manager' ? 'manager' : 'recorder');
   };
 
   const logout = () => {
@@ -50,17 +50,20 @@ function AppContent() {
         <WelcomeScreen
           onSelectManager={() => setScreen('managerLogin')}
           onSelectRecorder={() => setScreen('recorderLogin')}
+          onSelectAdmin={() => setScreen('adminLogin')}
         />
       )}
       {screen === 'managerLogin' && (
         <ManagerLogin onBack={() => setScreen('welcome')} onLogin={login} />
       )}
+      {screen === 'adminLogin' && <ManagerLogin role="admin" onBack={() => setScreen('welcome')} onLogin={login} />}
       {screen === 'recorderLogin' && (
         <RecorderLogin onBack={() => setScreen('welcome')} onLogin={login} />
       )}
       {screen === 'manager' && currentUser && (
         <ManagerDashboard user={currentUser} onLogout={logout} />
       )}
+      {screen === 'admin' && currentUser && <ManagerDashboard user={currentUser} onLogout={logout} isAdmin />}
       {screen === 'recorder' && currentUser && (
         <RecorderDashboard user={currentUser} onLogout={logout} />
       )}

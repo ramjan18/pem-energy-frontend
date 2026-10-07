@@ -4,16 +4,16 @@ import { useTheme } from '../context/ThemeContext';
 import Pagination from './Pagination';
 import ManagerDrawer from './ManagerDrawer';
 import LiveClock from './LiveClock';
-import { MdDescription, MdDeleteOutline, MdPeople, MdFileDownload, MdEdit, MdDelete, MdCalendarMonth, MdAccessTime, MdShowChart, MdTrendingUp, MdAssignment, MdClose, MdCheckCircle, MdError } from 'react-icons/md';
+import { MdDescription, MdDeleteOutline, MdPeople, MdFileDownload, MdEdit, MdDelete, MdCalendarMonth, MdAccessTime, MdShowChart, MdTrendingUp, MdAssignment, MdClose, MdCheckCircle, MdError, MdHistory, MdSave, MdPersonAddAlt1, MdManageAccounts, MdAssignmentInd, MdVisibility, MdVisibilityOff } from 'react-icons/md';
 import { MdBolt } from "react-icons/md";
 import {
   exportDateRange,
   exportMonthly,
   exportSingleDatePDF,
   exportDeletedMonthly,
-  exportShiftSheets,
   exportMonthlyBill,
-  exportMeterWise
+  exportPFCalculationSheet,
+  calculateBaselinePF
 } from '../exportUtils.js';
 import { MdLightMode, MdNightlightRound, MdLogout } from 'react-icons/md';
 
@@ -24,8 +24,15 @@ const apiService = {
   // Load all readings
   loadReadings: async () => {
     try {
-      const response = await readingAPI.getReadings();
-      const apiReadings = response.data || [];
+      const pageSize = 1000;
+      const firstPage = await readingAPI.getReadings({ page: 1, limit: pageSize });
+      const pageCount = Math.max(1, Number(firstPage.pagination?.pages) || 1);
+      const remainingPages = await Promise.all(
+        Array.from({ length: pageCount - 1 }, (_, index) =>
+          readingAPI.getReadings({ page: index + 2, limit: pageSize })
+        )
+      );
+      const apiReadings = [firstPage, ...remainingPages].flatMap(response => response.data || []);
 
       // Transform API data to match frontend expectations
       return apiReadings.map(reading => ({
@@ -40,6 +47,7 @@ const apiService = {
         kvarh_lag: reading.KVARHlag !== undefined ? reading.KVARHlag : reading.KVARH,
         kvarh_lead: reading.KVARHlead !== undefined ? reading.KVARHlead : 0,
         md: reading.MD,
+        multiplier: reading.multiplier,
         recorderName: reading.recordedBy?.username || 'Unknown',
         timestamp: new Date(reading.createdAt || reading.readingDate).getTime(),
         notes: reading.notes,
@@ -169,13 +177,13 @@ const V = {
 function TopHeader({ title, subtitle, onLogout, isMobileDrawerOpen }) {
   const isMobile = window.innerWidth <= 768;
   const { colors, theme, toggleTheme } = useTheme();
-  
+
   const styles = {
     container: {
       background: colors.surface,
       borderBottom: `1px solid ${colors.border}`,
-      padding: '0 28px', // Padding handled by height/flex
-      paddingTop: 'env(safe-area-inset-top)', 
+      padding: '0 28px',
+      paddingTop: 'env(safe-area-inset-top)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -200,11 +208,11 @@ function TopHeader({ title, subtitle, onLogout, isMobileDrawerOpen }) {
     rightSection: {
       display: 'flex',
       alignItems: 'center',
-      gap: '10px', // Gap between Theme Toggle and Logout
+      gap: '10px',
     },
     themeBtn: {
       background: colors.surface2 || '#1a1a1a',
-      border: `1px solid ${colors.blue || '#2563EB'}`, // Reduced to 1px for cleaner look
+      border: `1px solid ${colors.blue || '#2563EB'}`,
       color: colors.blue || '#2563EB',
       padding: '0 14px',
       borderRadius: '8px',
@@ -218,7 +226,7 @@ function TopHeader({ title, subtitle, onLogout, isMobileDrawerOpen }) {
       justifyContent: 'center',
       gap: '8px',
       whiteSpace: 'nowrap',
-      height: '38px', // Explicit height for alignment
+      height: '38px',
     },
     logoutBtn: {
       padding: '0 16px',
@@ -231,7 +239,7 @@ function TopHeader({ title, subtitle, onLogout, isMobileDrawerOpen }) {
       fontSize: '13px',
       fontWeight: 600,
       transition: 'all 0.2s ease',
-      height: '38px', // Matches theme button height
+      height: '38px',
       display: 'flex',
       alignItems: 'center',
     }
@@ -239,45 +247,24 @@ function TopHeader({ title, subtitle, onLogout, isMobileDrawerOpen }) {
 
   return (
     <div style={styles.container}>
-      {/* Left side: Brand/Title */}
       <div style={styles.leftSection}>
         <MdBolt style={{ fontSize: 22, color: colors.blue }} />
         <div style={styles.textStack}>
-          <div style={{ 
-            fontSize: 16, 
-            fontWeight: 800, 
-            color: colors.text, 
-            fontFamily: V.fontDisplay, 
-            letterSpacing: '-0.02em',
-            lineHeight: 1.2 
-          }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: colors.text, fontFamily: V.fontDisplay, letterSpacing: '-0.02em', lineHeight: 1.2 }}>
             {title}
           </div>
-          <div style={{ 
-            fontSize: 11, 
-            color: colors.textMuted, 
-            fontFamily: V.fontMono, 
-            marginTop: 1,
-            opacity: 0.8
-          }}>
+          <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: V.fontMono, marginTop: 1, opacity: 0.8 }}>
             {subtitle}
           </div>
         </div>
       </div>
 
-      {/* Right side: Actions */}
       <div style={styles.rightSection}>
-        <button 
-          onClick={toggleTheme} 
+        <button
+          onClick={toggleTheme}
           style={styles.themeBtn}
-          onMouseOver={e => { 
-            e.currentTarget.style.background = colors.blue; 
-            e.currentTarget.style.color = '#fff';
-          }}
-          onMouseOut={e => { 
-            e.currentTarget.style.background = colors.surface2 || '#1a1a1a'; 
-            e.currentTarget.style.color = colors.blue;
-          }}
+          onMouseOver={e => { e.currentTarget.style.background = colors.blue; e.currentTarget.style.color = '#fff'; }}
+          onMouseOut={e => { e.currentTarget.style.background = colors.surface2 || '#1a1a1a'; e.currentTarget.style.color = colors.blue; }}
           title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} mode`}
         >
           {theme === 'dark' ? <MdNightlightRound style={{ fontSize: 18 }} /> : <MdLightMode style={{ fontSize: 18 }} />}
@@ -285,35 +272,16 @@ function TopHeader({ title, subtitle, onLogout, isMobileDrawerOpen }) {
         </button>
 
         {onLogout && (
-          <button 
-            onClick={onLogout} 
+          <button
+            onClick={onLogout}
             style={styles.logoutBtn}
-            onMouseOver={e => { 
-              e.currentTarget.style.borderColor = colors.red; 
-              e.currentTarget.style.color = colors.red; 
-              e.currentTarget.style.background = `${colors.red}10`; // Subtle red tint
-            }}
-            onMouseOut={e => { 
-              e.currentTarget.style.borderColor = colors.border; 
-              e.currentTarget.style.color = colors.textMuted;
-              e.currentTarget.style.background = 'transparent';
-            }}
+            onMouseOver={e => { e.currentTarget.style.borderColor = colors.red; e.currentTarget.style.color = colors.red; e.currentTarget.style.background = `${colors.red}10`; }}
+            onMouseOut={e => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textMuted; e.currentTarget.style.background = 'transparent'; }}
           >
             Logout
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-function Alert({ message, type }) {
-  const { colors } = useTheme();
-  const colorMap = { error: colors.red, success: colors.green, info: colors.blue };
-  const c = colorMap[type] || colorMap.info;
-  return (
-    <div style={{ background: `${c}11`, border: `1px solid ${c}33`, borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: c, fontSize: 13, fontFamily: V.fontDisplay }}>
-      {message}
     </div>
   );
 }
@@ -332,6 +300,17 @@ function Modal({ title, subtitle, onClose, children }) {
         </div>
         {children}
       </div>
+    </div>
+  );
+}
+
+function Alert({ message, type }) {
+  const { colors } = useTheme();
+  const colorMap = { error: colors.red, success: colors.green, info: colors.blue };
+  const c = colorMap[type] || colorMap.info;
+  return (
+    <div style={{ background: `${c}11`, border: `1px solid ${c}33`, borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: c, fontSize: 13, fontFamily: V.fontDisplay }}>
+      {message}
     </div>
   );
 }
@@ -368,17 +347,23 @@ function Input({ type = 'text', value, onChange, placeholder, step }) {
 function PasswordInput({ placeholder, value, onChange }) {
   const { colors } = useTheme();
   const [show, setShow] = useState(false);
-  const style = { width: '100%', padding: '11px 14px', background: colors.surface2, border: `1px solid ${colors.border}`, borderRadius: 8, color: colors.text, fontSize: 14, fontFamily: V.fontDisplay, outline: 'none', boxSizing: 'border-box', paddingRight: 44 };
+  const style = { width: '100%', padding: '11px 14px', background: colors.surface2, border: `1px solid ${colors.border}`, borderRadius: 8, color: colors.text, fontSize: 14, fontFamily: V.fontDisplay, outline: 'none', boxSizing: 'border-box', paddingRight: 48 };
   return (
-    <div style={{ position: 'relative' }}>
-      <input type={show ? 'text' : 'password'} value={value} onChange={onChange} placeholder={placeholder} style={style} />
-      <button type="button" onClick={() => setShow(s => !s)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', fontSize: 14 }}>
-        {show ? '🙈' : '👁'}
+    <div className="manager-password-wrap" style={{ position: 'relative' }}>
+      <input className="manager-password-input" type={show ? 'text' : 'password'} value={value} onChange={onChange} placeholder={placeholder} style={style} />
+      <button
+        className="manager-password-toggle"
+        type="button"
+        onClick={() => setShow(s => !s)}
+        aria-label={show ? 'Hide password' : 'Show password'}
+        aria-pressed={show}
+        title={show ? 'Hide password' : 'Show password'}
+      >
+        {show ? <MdVisibilityOff /> : <MdVisibility />}
       </button>
     </div>
   );
 }
-
 function Select({ value, onChange, children }) {
   const { colors } = useTheme();
   const style = { width: '100%', padding: '11px 14px', background: colors.surface2, border: `1px solid ${colors.border}`, borderRadius: 8, color: colors.text, fontSize: 14, fontFamily: V.fontDisplay, outline: 'none', boxSizing: 'border-box', cursor: 'pointer' };
@@ -445,15 +430,58 @@ function DataTable({ headers, children, emptyMessage }) {
 // ─────────────────────────────────────────────
 const METERS = [
   { key: 'SAPL', label: 'SAPL', multiplier: 70, mdMultiplier: 70, color: '#2563EB', accent: '#3B82F6', glow: 'rgba(37,99,235,0.15)' },
-  { key: 'SMRT', label: 'SMRT', multiplier: 80, mdMultiplier: 80, color: '#10B981', accent: '#34D399', glow: 'rgba(16,185,129,0.15)' },
-  { key: 'SMC-HT', label: 'SMC HT', multiplier: 4, mdMultiplier: 80, color: '#8B5CF6', accent: '#A78BFA', glow: 'rgba(139,92,246,0.15)' },
+  { key: 'SMRT', label: 'SMRT', multiplier: 10, mdMultiplier: 10, color: '#10B981', accent: '#34D399', glow: 'rgba(16,185,129,0.15)' },
+  { key: 'SMC-HT', label: 'SMC HT', multiplier: 4, mdMultiplier: 4, color: '#8B5CF6', accent: '#A78BFA', glow: 'rgba(139,92,246,0.15)' },
 ];
 const M_ORDER = ['SAPL', 'SMRT', 'SMC-HT'];
-const getMeter = (sec) => METERS.find(m => m.key === sec);
+const getMeter = (sec) => {
+  const staticMeter = METERS.find(m => m.key === sec);
+  try {
+    if (typeof window !== 'undefined' && window.APP_METERS) {
+      const app = window.APP_METERS[sec];
+      if (app) {
+        return {
+          ...staticMeter,
+          multiplier: typeof app.multiplier === 'number' ? app.multiplier : staticMeter?.multiplier,
+          mdMultiplier: staticMeter?.mdMultiplier
+        };
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return staticMeter;
+};
 const getMultiplier = (sec) => getMeter(sec)?.multiplier || 1;
 const getMdMultiplier = (sec) => getMeter(sec)?.mdMultiplier || 1;
 const getColor = (sec) => getMeter(sec)?.color || '#ccc';
 const formatDate = (d) => { const [y, m, day] = d.split('-'); return `${day}-${m}-${y}`; };
+const previousMonthEnd = (dateStr) => {
+  const [year, month] = dateStr.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, 0)).toISOString().slice(0, 10);
+};
+
+// Use the multiplier captured when this shift was recorded; fall back to dated history for older readings.
+function getMultiplierForReading(sectionKey, reading) {
+  if (typeof reading?.multiplier === 'number' && Number.isFinite(reading.multiplier)) return reading.multiplier;
+  try {
+    if (typeof window !== 'undefined' && window.APP_METER_HISTORIES && window.APP_METER_HISTORIES[sectionKey]) {
+      const hist = window.APP_METER_HISTORIES[sectionKey];
+      if (hist && hist.length) {
+        const ts = new Date(reading?.timestamp || `${reading?.date || ''}T23:59:59.999`);
+        let effectiveMultiplier = hist[0].oldMultiplier;
+        for (const entry of hist) {
+          if (new Date(entry.createdAt) > ts) break;
+          if (typeof entry.newMultiplier === 'number') effectiveMultiplier = entry.newMultiplier;
+        }
+        return effectiveMultiplier;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return getMultiplier(sectionKey);
+}
 
 // ─────────────────────────────────────────────
 //  DASHBOARD TAB
@@ -461,7 +489,7 @@ const formatDate = (d) => { const [y, m, day] = d.split('-'); return `${day}-${m
 // ─────────────────────────────────────────────
 //  RECORDS TAB
 // ─────────────────────────────────────────────
-function RecordsTab({ records, onRecordsChange, isMobile }) {
+function RecordsTab({ records, meters = [], onRecordsChange, isMobile, canEdit = true, canDelete = true }) {
   const { colors } = useTheme();
   const [editModal, setEditModal] = useState(null);
   const [deleteModal, setDeleteModal] = useState(null);
@@ -558,19 +586,27 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
     }
   };
 
+  const readingsBySectionShiftDate = new Map();
+  records.forEach(reading => {
+    const key = `${reading.section}|${reading.shift}|${reading.date}`;
+    const existing = readingsBySectionShiftDate.get(key);
+    if (!existing || reading.timestamp > existing.timestamp) readingsBySectionShiftDate.set(key, reading);
+  });
+
   function calcRow(r) {
     const allSec = records.filter(x => x.section === r.section && x.shift === r.shift);
     const prevDate = new Date(new Date(r.date).getTime() - 86400000).toISOString().split('T')[0];
     const prevRecs = allSec.filter(p => p.date === prevDate).sort((a, b) => b.timestamp - a.timestamp);
     const prevReading = prevRecs.length > 0 ? prevRecs[0].kwh : null;
-    const dc = prevReading !== null ? ((r.kwh - prevReading) * getMultiplier(r.section)).toFixed(2) : '—';
+    const dc = prevReading !== null ? ((r.kwh - prevReading) * getMultiplierForReading(r.section, r)).toFixed(2) : '—';
     const recMonth = r.date.slice(0, 7);
     const monthRecs = allSec.filter(m => m.date?.startsWith(recMonth));
     const maxMD = monthRecs.length > 0 ? Math.max(...monthRecs.map(m => m.md)) : null;
     const actualMD = maxMD !== null ? Math.round(maxMD * getMdMultiplier(r.section)) : '—';
-    const lag = r.kvarh_lag || 0, lead = r.kvarh_lead || 0;
-    const denom = Math.sqrt(r.kwh * r.kwh + (lag + lead) * (lag + lead));
-    const pf = denom > 0 ? (r.kwh / denom).toFixed(4) : '—';
+    const sheetCurrent = readingsBySectionShiftDate.get(`${r.section}|3|${r.date}`) || r;
+    const baseline = readingsBySectionShiftDate.get(`${r.section}|3|${previousMonthEnd(r.date)}`);
+    const calculatedPF = calculateBaselinePF(sheetCurrent, baseline);
+    const pf = calculatedPF === null ? '—' : calculatedPF.toFixed(4);
     return { dc, actualMD, pf };
   }
 
@@ -580,10 +616,16 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
   const allDates = [...new Set(filtered.map(r => r.date))].sort((a, b) => new Date(b) - new Date(a));
 
   // Pagination
-  const totalPages = Math.ceil(allDates.length / ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(allDates.length / ITEMS_PER_PAGE));
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = startIndex + ITEMS_PER_PAGE;
   const paginatedDates = allDates.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const filterBtnStyle = (active, activeColor) => ({
     padding: '7px 16px', borderRadius: 20, cursor: 'pointer', fontWeight: 600, fontSize: 12,
@@ -616,7 +658,7 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
           <span style={{ fontSize: 11, color: colors.textDim, fontFamily: V.fontMono, textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 4, minWidth: '50px' }}>Meter</span>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {['all', 'SAPL', 'SMRT', 'SMC-HT'].map(m => (
-              <button key={m} onClick={() => setMeterFilter(m)} style={filterBtnStyle(meterFilter === m, '#2563EB')}>{m === 'all' ? 'All' : m}</button>
+              <button key={m} onClick={() => { setMeterFilter(m); setCurrentPage(1); }} style={filterBtnStyle(meterFilter === m, '#2563EB')}>{m === 'all' ? 'All' : m}</button>
             ))}
           </div>
         </div>
@@ -625,7 +667,7 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
           <span style={{ fontSize: 11, color: colors.textDim, fontFamily: V.fontMono, textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 4, minWidth: '50px' }}>Shift</span>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {['all', '1', '2', '3'].map(s => (
-              <button key={s} onClick={() => setShiftFilter(s)} style={filterBtnStyle(shiftFilter === s, '#F59E0B')}>{s === 'all' ? 'All' : `S${s}`}</button>
+              <button key={s} onClick={() => { setShiftFilter(s); setCurrentPage(1); }} style={filterBtnStyle(shiftFilter === s, '#F59E0B')}>{s === 'all' ? 'All' : `S${s}`}</button>
             ))}
           </div>
         </div>
@@ -705,8 +747,8 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
                                 <td style={{ ...tdS, color: colors.textMuted }}>{r.recorderName}</td>
                                 <td style={tdS}>
                                   <div style={{ display: 'flex', gap: 6 }}>
-                                    <button onClick={() => openEdit(r)} style={{ padding: '6px 12px', border: '1px solid rgba(37,99,235,0.4)', color: '#2563EB', background: 'rgba(37,99,235,0.06)', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: V.fontDisplay, transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4 }}><MdEdit style={{ fontSize: 14 }} /> Edit</button>
-                                    <button onClick={() => openDelete(r)} style={{ padding: '6px 12px', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', background: 'rgba(239,68,68,0.06)', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: V.fontDisplay, transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4 }}><MdDelete style={{ fontSize: 14 }} /> Delete</button>
+                                    {canEdit && <button onClick={() => openEdit(r)} style={{ padding: '6px 12px', border: '1px solid rgba(37,99,235,0.4)', color: '#2563EB', background: 'rgba(37,99,235,0.06)', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: V.fontDisplay, transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4 }}><MdEdit style={{ fontSize: 14 }} /> Edit</button>}
+                                    {canDelete && <button onClick={() => openDelete(r)} style={{ padding: '6px 12px', border: '1px solid rgba(239,68,68,0.3)', color: '#EF4444', background: 'rgba(239,68,68,0.06)', borderRadius: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: V.fontDisplay, transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4 }}><MdDelete style={{ fontSize: 14 }} /> Delete</button>}
                                   </div>
                                 </td>
                               </tr>
@@ -736,7 +778,7 @@ function RecordsTab({ records, onRecordsChange, isMobile }) {
         <span>Computed columns (Daily Consumption → PF)</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
         <span>Daily = (Today − Yesterday) × multiplier</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
         <span>MD = Max of current month × MD multiplier</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
-        <span>SMC-HT: Consumption ×4 · MD ×80</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
+        <span>MD multipliers: SAPL ×70 · SMRT ×10 · SMC-HT ×4</span><span style={{ margin: '0 8px', color: colors.border }}>|</span>
         <span>PF = KWH / √(KWH² + (Lag+Lead)²)</span>
       </div>
 
@@ -1480,9 +1522,18 @@ function LiveDashboardTab({ records }) {
   const today = new Date().toISOString().split('T')[0];
   const yesterdayDate = new Date(Date.now() - 86400000).toISOString().split('T')[0];
   const [hoveredRow, setHoveredRow] = useState(null);
+  const currentYear = new Date().getFullYear();
+  const [pfYear, setPfYear] = useState(String(currentYear));
+  const [showPfYearModal, setShowPfYearModal] = useState(false);
 
   const shift3 = records.filter(r => r.shift === '3');
   const allDates = [...new Set(shift3.map(r => r.date))].sort((a, b) => new Date(b) - new Date(a));
+  const shift3BySectionDate = new Map();
+  shift3.forEach(reading => {
+    const key = `${reading.section}|${reading.date}`;
+    const existing = shift3BySectionDate.get(key);
+    if (!existing || reading.timestamp > existing.timestamp) shift3BySectionDate.set(key, reading);
+  });
 
   function getStatsForMeterOnDate(sectionKey, multiplier, mdMultiplier, date) {
     const secRecs = shift3.filter(r => r.section === sectionKey);
@@ -1491,18 +1542,14 @@ function LiveDashboardTab({ records }) {
     const prevRecs = secRecs.filter(r => r.date === prevDate).sort((a, b) => b.timestamp - a.timestamp);
     const todayReading = dayRecs.length > 0 ? dayRecs[0].kwh : null;
     const yestReading = prevRecs.length > 0 ? prevRecs[0].kwh : null;
-    const dc = (todayReading !== null && yestReading !== null) ? ((todayReading - yestReading) * multiplier).toFixed(2) : '—';
+    const dc = (todayReading !== null && yestReading !== null) ? ((todayReading - yestReading) * getMultiplierForReading(sectionKey, dayRecs[0])).toFixed(2) : '—';
     const recMonth = date.slice(0, 7);
     const monthRecs = secRecs.filter(r => r.date?.startsWith(recMonth));
     const maxMD = monthRecs.length > 0 ? Math.max(...monthRecs.map(r => r.md)) : null;
     const actualMD = maxMD !== null ? Math.round(maxMD * mdMultiplier) : '—';
-    let pf = '—';
-    if (dayRecs.length > 0) {
-      const { kwh, kvarh_lag, kvarh_lead } = dayRecs[0];
-      const lag = kvarh_lag || 0, lead = kvarh_lead || 0;
-      const denom = Math.sqrt(kwh * kwh + (lag + lead) * (lag + lead));
-      pf = denom > 0 ? (kwh / denom).toFixed(4) : '—';
-    }
+    const baseline = shift3BySectionDate.get(`${sectionKey}|${previousMonthEnd(date)}`);
+    const calculatedPF = dayRecs.length > 0 ? calculateBaselinePF(dayRecs[0], baseline) : null;
+    const pf = calculatedPF === null ? '—' : calculatedPF.toFixed(4);
     return {
       todayReading: todayReading !== null ? todayReading.toFixed(2) : '—',
       yestReading: yestReading !== null ? yestReading.toFixed(2) : '—',
@@ -1526,10 +1573,36 @@ function LiveDashboardTab({ records }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => exportShiftSheets(records)} style={{ background: `${colors.green}15`, border: `1px solid ${colors.green}30`, color: colors.green, padding: '9px 18px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, fontFamily: V.fontDisplay }}>⬇️ Export Shift Sheets</button>
-          <button onClick={() => exportMeterWise(records)} style={{ background: `${colors.purple}15`, border: `1px solid ${colors.purple}30`, color: colors.purple, padding: '9px 18px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, fontFamily: V.fontDisplay }}>⬇️ Export Meter Sheets</button>
+          <button onClick={() => setShowPfYearModal(true)} style={{ background: `${colors.blue}15`, border: `1px solid ${colors.blue}30`, color: colors.blue, padding: '9px 18px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 12, fontFamily: V.fontDisplay }}>⬇️ PF Calculation Sheet</button>
         </div>
       </div>
+
+      {showPfYearModal && (
+        <Modal title="PF Calculation Sheet" subtitle="Select a year. A blank template is generated when no readings exist." onClose={() => setShowPfYearModal(false)}>
+          <label style={{ display: 'block', color: colors.textMuted, fontSize: 12, fontWeight: 700, marginBottom: 8 }}>YEAR</label>
+          <select
+            value={pfYear}
+            onChange={event => setPfYear(event.target.value)}
+            style={{ width: '100%', padding: '12px 14px', borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.surface2, color: colors.text, fontFamily: V.fontDisplay, fontSize: 14, marginBottom: 20 }}
+          >
+            {Array.from({ length: currentYear - 2020 + 1 }, (_, index) => currentYear - index).map(year => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <Btn variant="secondary" onClick={() => setShowPfYearModal(false)}>Cancel</Btn>
+            <Btn onClick={async () => {
+              try {
+                await exportPFCalculationSheet(records, pfYear);
+                setShowPfYearModal(false);
+              } catch (error) {
+                console.error('PF calculation sheet export failed:', error);
+                window.alert('The PF calculation sheet could not be generated. Please try again.');
+              }
+            }}>Download Sheet</Btn>
+          </div>
+        </Modal>
+      )}
 
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16, marginBottom: 28 }}>
@@ -1638,7 +1711,7 @@ function LiveDashboardTab({ records }) {
 // ─────────────────────────────────────────────
 //  USERS TAB
 // ─────────────────────────────────────────────
-function UsersTab() {
+function UsersTab({ isAdmin = false }) {
   const { colors } = useTheme();
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -1910,34 +1983,283 @@ function UsersTab() {
 
       {modalOpen && (
         <Modal title="Create New User" subtitle="Add a recorder or manager account" onClose={() => setModalOpen(false)}>
-          {submitError && <Alert message={submitError} type="error" />}
-          {submitSuccess && <Alert message={submitSuccess} type="success" />}
+          <div className="create-user-content">
+            <div className="create-user-intro">
+              <div className="create-user-icon"><MdPersonAddAlt1 /></div>
+              <div>
+                <span className="create-user-eyebrow">NEW ACCOUNT</span>
+                <h3>Set up a team member</h3>
+                <p>Add login details and choose what they can access.</p>
+              </div>
+            </div>
 
-          <FormField label="Username">
-            <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="e.g. arif.kazi" />
-          </FormField>
-          <FormField label="Email Address">
-            <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="e.g. user@example.com" />
-          </FormField>
-          <FormField label="Password">
-            <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="Choose a secure password" />
-          </FormField>
-          <FormField label="Role">
-            <Select value={role} onChange={e => setRole(e.target.value)}>
-              <option value="recorder">Recorder</option>
-              <option value="manager">Manager</option>
-            </Select>
-          </FormField>
-          {/* <FormField label="Department (optional)">
-            <Input value={department} onChange={e => setDepartment(e.target.value)} placeholder="e.g. SAPL" />
-          </FormField> */}
-          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-            <Btn variant="secondary" onClick={() => setModalOpen(false)} style={{ flex: 1 }}>Cancel</Btn>
-            <Btn onClick={handleCreateUser} style={{ flex: 1 }}>Create User</Btn>
+            {submitError && <Alert message={submitError} type="error" />}
+            {submitSuccess && <Alert message={submitSuccess} type="success" />}
+
+            <div className="create-user-fields">
+              <FormField label="Username">
+                <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="e.g. arif.kazi" />
+              </FormField>
+              <FormField label="Email Address">
+                <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="e.g. user@example.com" />
+              </FormField>
+              <div className="create-user-full-field">
+                <FormField label="Password">
+                  <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="Choose a secure password" />
+                </FormField>
+              </div>
+              <div className="create-user-full-field">
+                <FormField label="Account Role">
+                  <Select value={role} onChange={e => setRole(e.target.value)}>
+                    <option value="recorder">Recorder</option>
+            {isAdmin && <option value="manager">Manager</option>}
+                  </Select>
+                </FormField>
+              </div>
+            </div>
+
+            <div className={`create-user-role-note ${role === 'manager' ? 'is-manager' : ''}`}>
+              <span className="create-user-role-icon">{role === 'manager' ? <MdManageAccounts /> : <MdAssignmentInd />}</span>
+              <div>
+                <strong>{role === 'manager' ? 'Manager access' : 'Recorder access'}</strong>
+                <p>{role === 'manager' ? 'Can manage meters, users, and reports.' : 'Can submit meter readings and review assigned records.'}</p>
+              </div>
+            </div>
+
+            <div className="create-user-actions">
+              <Btn variant="secondary" onClick={() => setModalOpen(false)} style={{ flex: 1 }}>Cancel</Btn>
+              <Btn onClick={handleCreateUser} style={{ flex: 1 }}><MdPersonAddAlt1 style={{ marginRight: 7, verticalAlign: '-3px' }} />Create User</Btn>
+            </div>
           </div>
         </Modal>
       )}
     </div>
+  );
+}
+
+const ACCESS_OPTIONS = [['editRecords', 'Edit records'], ['deleteRecords', 'Delete records'], ['fillPending', 'Fill pending readings'], ['createUsers', 'Create users'], ['export_dateRange', 'Export: date range'], ['export_monthly', 'Export: monthly'], ['export_singleDate', 'Export: single date PDF'], ['export_deletedMonthly', 'Export: deleted records'], ['export_monthlyBill', 'Export: monthly bill']];
+
+function AccessControlTab() {
+  const { colors } = useTheme();
+  const [managers, setManagers] = useState([]); const [selected, setSelected] = useState('');
+  const [permissions, setPermissions] = useState([]); const [message, setMessage] = useState(''); const [error, setError] = useState('');
+  useEffect(() => { authAPI.getAllUsers({ role: 'manager' }).then(r => { const list = r.data || []; setManagers(list); if (list[0]) { setSelected(list[0]._id); setPermissions(list[0].permissions || []); } }).catch(e => setError(e.message)); }, []);
+  const choose = id => { setSelected(id); setPermissions(managers.find(m => m._id === id)?.permissions || []); setMessage(''); };
+  const save = async () => { setError(''); try { const response = await authAPI.updateUserPermissions(selected, permissions); setManagers(list => list.map(manager => manager._id === selected ? response.data : manager)); setMessage('Access saved.'); } catch (e) { setError(e.message || 'Unable to save access.'); } };
+  const groups = [
+    { title: 'Reading & users', icon: '⚡', description: 'Choose which management actions this account can perform.', options: ACCESS_OPTIONS.slice(0, 4) },
+    { title: 'Exports', icon: '↗', description: 'Grant access to individual report formats.', options: ACCESS_OPTIONS.slice(4) },
+  ];
+  const card = { background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 18, padding: 22, boxShadow: '0 16px 44px rgba(0,0,0,.16)' };
+  const selectedManager = managers.find(manager => manager._id === selected);
+  return <div style={{ maxWidth: 980, margin: '0 auto', animation: 'fadeIn .3s ease' }}>
+    <div style={{ ...card, position: 'relative', overflow: 'hidden', padding: '28px 30px', marginBottom: 18, background: `linear-gradient(115deg, ${colors.surface} 35%, ${colors.blue}20)` }}>
+      <div style={{ position: 'absolute', right: -28, top: -58, width: 210, height: 210, borderRadius: '50%', border: `1px solid ${colors.blue}30`, boxShadow: `0 0 0 24px ${colors.blue}08, 0 0 0 48px ${colors.blue}05` }} />
+      <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ color: colors.blue, fontSize: 11, fontWeight: 800, letterSpacing: '.16em', textTransform: 'uppercase', marginBottom: 8 }}>Administration · Permissions</div>
+          <h2 style={{ color: colors.text, fontSize: 26, fontWeight: 800, letterSpacing: '-.04em' }}>Access Control</h2>
+          <p style={{ color: colors.textMuted, marginTop: 7, maxWidth: 520, lineHeight: 1.55 }}>Tailor each manager’s access to the tools and reports they need.</p>
+        </div>
+        <div style={{ minWidth: 230, padding: '12px 16px', borderRadius: 12, background: `${colors.blue}12`, border: `1px solid ${colors.blue}35` }}>
+          <div style={{ color: colors.textMuted, fontSize: 10, fontWeight: 800, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 5 }}>Selected manager</div>
+          <div style={{ color: colors.text, fontWeight: 750, fontSize: 15 }}>{selectedManager?.username || 'Choose a manager'}</div>
+        </div>
+      </div>
+    </div>
+
+    <div style={{ ...card, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 13, marginBottom: 14 }}>
+        <div style={{ width: 38, height: 38, display: 'grid', placeItems: 'center', borderRadius: 11, background: `${colors.purple}18`, color: colors.purple, fontSize: 19 }}>♙</div>
+        <div><div style={{ color: colors.text, fontSize: 14, fontWeight: 750 }}>Choose account</div><div style={{ color: colors.textMuted, fontSize: 12, marginTop: 3 }}>Permissions are assigned to one manager at a time.</div></div>
+      </div>
+      <Select value={selected} onChange={e => choose(e.target.value)}><option value="">Select manager</option>{managers.map(m => <option key={m._id} value={m._id}>{m.username}</option>)}</Select>
+      {!managers.length && !error && <p style={{ color: colors.textMuted, fontSize: 13, marginTop: 12 }}>No manager accounts found yet. Create a manager first.</p>}
+    </div>
+
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 18 }}>
+      {groups.map(group => <section key={group.title} style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 5 }}>
+          <div style={{ width: 38, height: 38, display: 'grid', placeItems: 'center', borderRadius: 11, background: `${colors.blue}18`, color: colors.blue, fontSize: 20, fontWeight: 800 }}>{group.icon}</div>
+          <h3 style={{ color: colors.text, fontSize: 15, fontWeight: 800 }}>{group.title}</h3>
+        </div>
+        <p style={{ color: colors.textMuted, fontSize: 12, lineHeight: 1.5, marginBottom: 14 }}>{group.description}</p>
+        <div style={{ display: 'grid', gap: 9 }}>
+          {group.options.map(([key, label]) => {
+            const enabled = permissions.includes(key);
+            return <label key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '12px 13px', borderRadius: 12, cursor: selected ? 'pointer' : 'not-allowed', border: `1px solid ${enabled ? `${colors.blue}70` : colors.border}`, background: enabled ? `${colors.blue}12` : colors.surface2, transition: 'all .18s', opacity: selected ? 1 : .55 }}>
+              <span style={{ color: colors.text, fontSize: 13, fontWeight: 650 }}>{label}</span>
+              <input aria-label={label} type="checkbox" checked={enabled} disabled={!selected} onChange={e => setPermissions(p => e.target.checked ? [...p, key] : p.filter(x => x !== key))} style={{ width: 18, height: 18, accentColor: colors.blue, cursor: 'pointer' }} />
+            </label>;
+          })}
+        </div>
+      </section>)}
+    </div>
+
+    <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginTop: 18, padding: '16px 20px' }}>
+      <div style={{ minHeight: 20, fontSize: 13, color: error ? colors.red : colors.green, fontWeight: 650 }}>{error || message || (selected ? `${permissions.length} permission${permissions.length === 1 ? '' : 's'} selected` : 'Select a manager to edit permissions')}</div>
+      <Btn onClick={save} disabled={!selected} style={{ minWidth: 170, boxShadow: selected ? `0 8px 22px ${colors.blue}35` : 'none' }}>Save Access</Btn>
+    </div>
+  </div>;
+}
+
+function MFTab({ meters, onMetersChange }) {
+  const [local, setLocal] = useState([]);
+  const [savingId, setSavingId] = useState(null);
+  const [alert, setAlert] = useState(null);
+  const [historyModal, setHistoryModal] = useState(null);
+  const [historyData, setHistoryData] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+
+  useEffect(() => {
+    setLocal((meters || []).map(m => ({ id: m._id, meterName: m.meterName, multiplier: m.multiplier || 1, comment: '' })));
+  }, [meters]);
+
+  const showAlert = (msg, type='info') => { setAlert({ msg, type }); setTimeout(() => setAlert(null), 4000); };
+
+  const handleChange = (id, value) => {
+    setLocal(ls => ls.map(l => l.id === id ? { ...l, multiplier: value } : l));
+  };
+
+  const handleCommentChange = (id, value) => {
+    setLocal(ls => ls.map(l => l.id === id ? { ...l, comment: value } : l));
+  };
+
+  const handleSave = async (m) => {
+    try {
+      setSavingId(m.id);
+      const multiplierValue = parseFloat(m.multiplier) || 1;
+      const comment = (m.comment || '').trim();
+      if (comment.length < 15) {
+        showAlert('Please provide a comment of at least 15 characters', 'error');
+        setSavingId(null);
+        return;
+      }
+      await meterAPI.updateMeter(m.id, { multiplier: multiplierValue, comment });
+      // refresh meters from backend
+      await onMetersChange?.();
+      // update global APP_METERS mapping so dashboard reflects changes
+      try {
+        if (typeof window !== 'undefined') {
+          window.APP_METERS = window.APP_METERS || {};
+          window.APP_METERS[m.meterName] = { multiplier: parseFloat(m.multiplier) || 1 };
+        }
+      } catch (e) {}
+      showAlert('Saved. The new multiplier applies to the next reading; previous calculations stay unchanged.', 'success');
+    } catch (err) {
+      showAlert('Save failed: ' + (err.message || err), 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const openHistory = async (m) => {
+    setHistoryModal(m);
+    setHistoryData([]);
+    setHistoryError('');
+    setHistoryLoading(true);
+    try {
+      const resp = await meterAPI.getMeterHistory(m.id);
+      const items = resp.data || resp || [];
+      setHistoryData(Array.isArray(items) ? items : []);
+    } catch (err) {
+      const message = err.message || String(err);
+      setHistoryError(message === 'Endpoint not found'
+        ? 'The configured backend does not have the MF history route yet. Deploy the latest pem-energy-backend code, then reopen history.'
+        : `Could not load history: ${message}`);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  return (
+    <section className="mf-section">
+      <header className="mf-heading">
+        <div className="mf-heading-icon"><MdBolt /></div>
+        <div className="mf-heading-copy">
+          <span className="mf-eyebrow">METER CONFIGURATION · LIVE CONTROL</span>
+          <h2>MF Control Center</h2>
+          <p>Set the factor used to convert each meter reading for reporting.</p>
+        </div>
+        <div className="mf-effective-note"><span className="mf-status-dot" /><span><strong>SHIFT-SAFE UPDATE</strong><small>Starts with the next reading</small></span></div>
+      </header>
+
+      {alert && <Alert message={alert.msg} type={alert.type} />}
+
+      <div className="mf-panel">
+        <div className="mf-panel-heading">
+          <div>
+            <h3>Meter factors</h3>
+            <p>Enter a factor and add a short reason before saving.</p>
+          </div>
+          <span className="mf-meter-count">{local.length} {local.length === 1 ? 'METER' : 'METERS'}</span>
+        </div>
+        {(local || []).length === 0 ? (
+          <div className="mf-empty-state">No meters found.</div>
+        ) : (
+          <div className="mf-meter-list">
+            {local.map(m => (
+              <article className="mf-meter-card" key={m.id}>
+                <div className="mf-meter-identity">
+                  <span className="mf-meter-label">METER</span>
+                  <div className="mf-meter-name-row"><span className="mf-meter-avatar">{m.meterName?.slice?.(0, 2).toUpperCase()}</span><strong>{m.meterName}</strong></div>
+                  <span className="mf-meter-id">ID · {m.id?.slice?.(0, 8)}</span>
+                </div>
+                <label className="mf-field mf-factor-field">
+                  <span>Multiplying factor</span>
+                  <div className="mf-number-wrap">
+                    <span aria-hidden="true">×</span>
+                    <input type="number" step="0.01" value={m.multiplier} onChange={e => handleChange(m.id, e.target.value)} />
+                  </div>
+                  <span className="mf-factor-hint">Draft factor · applied to the next reading</span>
+                </label>
+                <label className="mf-field mf-comment-field">
+                  <span>Reason for change <small>Required · 15 characters</small></span>
+                  <textarea value={m.comment} onChange={e => handleCommentChange(m.id, e.target.value)} placeholder="Explain why this factor is changing…" />
+                  <span className={`mf-char-count ${m.comment?.trim().length >= 15 ? 'is-valid' : ''}`}>{m.comment?.trim().length || 0} / 15 minimum</span>
+                </label>
+                <div className="mf-actions">
+                  <button className="mf-save-button" onClick={() => handleSave(m)} disabled={savingId === m.id || !(m.comment && m.comment.trim().length >= 15)}>
+                    {savingId === m.id ? <><span className="mf-spinner" />Saving</> : <><MdSave />Save factor</>}
+                  </button>
+                  <button className="mf-history-button" onClick={() => openHistory(m)}><MdHistory />View history</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {historyModal && (
+        <Modal
+          title={`MF history · ${historyModal.meterName}`}
+          subtitle="Multiplier changes recorded for this meter."
+          onClose={() => setHistoryModal(null)}
+        >
+          {historyLoading ? (
+            <div className="mf-history-state"><span className="mf-spinner" />Loading multiplier history…</div>
+          ) : historyError ? (
+            <div className="mf-history-error">{historyError}</div>
+          ) : historyData.length === 0 ? (
+            <div className="mf-history-state">No multiplier changes have been recorded for this meter yet.</div>
+          ) : (
+            <div className="mf-history-list">
+              {historyData.map(entry => (
+                <article className="mf-history-entry" key={entry._id}>
+                  <div className="mf-history-entry-top">
+                    <span className="mf-history-change"><span>×{entry.oldMultiplier}</span><span className="mf-history-arrow">→</span><strong>×{entry.newMultiplier}</strong></span>
+                    <time>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : 'Date unavailable'}</time>
+                  </div>
+                  <div className="mf-history-byline">Changed by {entry.changedByName || 'Manager'}</div>
+                  {entry.comment && <p>{entry.comment}</p>}
+                </article>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+    </section>
   );
 }
 
@@ -1989,7 +2311,7 @@ function MonthlyBillModal({ records, onClose }) {
       <FormField label="Meter">
         <Select value={meter} onChange={e => setMeter(e.target.value)}>
           <option value="SAPL">SAPL (×70)</option>
-          <option value="SMRT">SMRT (×80)</option>
+          <option value="SMRT">SMRT (×10)</option>
           <option value="SMC-HT">SMC-HT (×4)</option>
         </Select>
       </FormField>
@@ -2022,7 +2344,7 @@ function MonthlyBillModal({ records, onClose }) {
   );
 }
 
-function ExportTab({ records }) {
+function ExportTab({ records, allowedExports }) {
   const [modal, setModal] = useState(null);
   const [exportShift, setExportShift] = useState('1');
   const [fromDate, setFromDate] = useState('');
@@ -2090,11 +2412,12 @@ function ExportTab({ records }) {
     { id: 'deletedMonthly', icon: MdDeleteOutline, color: '#EF4444', title: 'Deleted Records Export', desc: 'Export deleted entries (Monthly)' },
     { id: 'monthlyBill', icon: MdAssignment, color: '#F59E0B', title: 'Monthly Bill PDF', desc: 'Password-protected · Authorized by Arif Kazi' },
   ];
+  const visibleExportCards = allowedExports ? exportCards.filter(card => allowedExports.includes(card.id)) : exportCards;
 
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(230px,1fr))', gap: 16 }}>
-        {exportCards.map(c => {
+        {visibleExportCards.map(c => {
           const IconComponent = c.icon;
           return (
             <div
@@ -2218,13 +2541,18 @@ const TABS = [
   { id: 'records', label: 'Records', icon: MdDescription },
   { id: 'pending', label: 'Pending', icon: MdAccessTime },
   { id: 'deleted', label: 'Deleted', icon: MdDeleteOutline },
+  { id: 'mf', label: 'MF', icon: MdEdit },
   { id: 'users', label: 'Users', icon: MdPeople },
   { id: 'export', label: 'Export', icon: MdFileDownload },
 ];
 
-export default function ManagerDashboard({ user, onLogout }) {
+export default function ManagerDashboard({ user, onLogout, isAdmin = false }) {
   const { colors } = useTheme();
   const [activeTab, setActiveTab] = useState('live');
+  const permissions = user?.permissions || [];
+  const can = permission => isAdmin || permissions.includes('*') || permissions.includes(permission);
+  const exportAccess = permissions.filter(permission => permission.startsWith('export_')).map(permission => permission.slice('export_'.length));
+  const availableTabs = isAdmin ? ['live', 'mf', 'users', 'access'] : ['live', 'records', ...(can('fillPending') ? ['pending'] : []), ...(can('deleteRecords') ? ['deleted'] : []), ...(can('createUsers') ? ['users'] : []), ...(can('export') || exportAccess.length ? ['export'] : [])];
   const [records, setRecords] = useState([]);
   const [meters, setMeters] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -2260,6 +2588,28 @@ export default function ManagerDashboard({ user, onLogout }) {
       const data = await apiService.loadMeters();
       console.log('Loaded meters in component:', data, 'count:', data?.length || 0);
       setMeters(data || []);
+      try {
+        // create simple mapping for dashboard helpers to pick backend multipliers
+        if (typeof window !== 'undefined') {
+          window.APP_METERS = {};
+          (data || []).forEach(m => {
+            if (m && m.meterName) window.APP_METERS[m.meterName] = { multiplier: typeof m.multiplier === 'number' ? m.multiplier : (m.multiplier ? Number(m.multiplier) : 1) };
+          });
+          // preload meter histories so dashboard can compute historical multipliers per date
+          window.APP_METER_HISTORIES = {};
+          await Promise.all((data || []).map(async (m) => {
+            try {
+              const resp = await meterAPI.getMeterHistory(m._id);
+              const hist = (resp && resp.data) ? resp.data : (resp || []);
+              window.APP_METER_HISTORIES[m.meterName] = (Array.isArray(hist) ? hist : []).sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+            } catch (e) {
+              window.APP_METER_HISTORIES[m.meterName] = [];
+            }
+          }));
+        }
+      } catch (e) {
+        // ignore
+      }
     } catch (err) {
       console.error('Error loading meters:', err);
       setMeters([]);
@@ -2298,6 +2648,8 @@ export default function ManagerDashboard({ user, onLogout }) {
         }}
         onLogout={onLogout}
         username={user?.username}
+        availableTabs={availableTabs}
+        portalLabel={isAdmin ? 'Admin Portal' : 'Manager Portal'}
         onDrawerStateChange={setMobileDrawerOpen}
       />
 
@@ -2310,13 +2662,13 @@ export default function ManagerDashboard({ user, onLogout }) {
           {/* Tab content */}
           <div key={activeTab} style={{ animation: 'fadeIn 0.25s ease' }}>
             {error && (
-              <div style={{ background: colors.surface, border: `1px solid ${colors.red}`, borderRadius: 12, padding: 18, marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', '@media (max-width: 640px)': { flexDirection: 'column', alignItems: 'flex-start' } }}>
+              <div style={{ background: colors.surface, border: `1px solid ${colors.red}`, borderRadius: 12, padding: 18, marginBottom: 20, display: 'flex', gap: 12, alignItems: isMobile ? 'flex-start' : 'center', flexDirection: isMobile ? 'column' : 'row' }}>
                 <span style={{ fontSize: 22 }}>⚠️</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, color: colors.red, fontSize: 15 }}>Error Loading Data</div>
                   <div style={{ fontSize: 12, color: colors.textMuted }}>{error}</div>
                 </div>
-                <button onClick={loadRecords} style={{ marginLeft: 'auto', padding: '8px 16px', background: colors.red, color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, '@media (max-width: 640px)': { marginLeft: 0, width: '100%' } }}>Retry</button>
+                <button onClick={loadRecords} style={{ marginLeft: isMobile ? 0 : 'auto', padding: '8px 16px', background: colors.red, color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, width: isMobile ? '100%' : 'auto' }}>Retry</button>
               </div>
             )}
 
@@ -2327,12 +2679,14 @@ export default function ManagerDashboard({ user, onLogout }) {
               </div>
             ) : (
               <>
-                {activeTab === 'records' && <RecordsTab records={records} onRecordsChange={loadRecords} isMobile={isMobile} />}
+                {activeTab === 'records' && <RecordsTab records={records} meters={meters} onRecordsChange={loadRecords} isMobile={isMobile} canEdit={can('editRecords')} canDelete={can('deleteRecords')} />}
                 {activeTab === 'pending' && <PendingTab records={records} meters={meters} onRecordsChange={loadRecords} />}
                 {activeTab === 'deleted' && <DeletedTab />}
+                {activeTab === 'mf' && <MFTab meters={meters} onMetersChange={loadMeters} />}
                 {activeTab === 'live' && <LiveDashboardTab records={records} />}
-                {activeTab === 'users' && <UsersTab />}
-                {activeTab === 'export' && <ExportTab records={records} />}
+                {activeTab === 'users' && <UsersTab isAdmin={isAdmin} />}
+                {activeTab === 'export' && <ExportTab records={records} allowedExports={isAdmin || can('export') ? undefined : exportAccess} />}
+                {activeTab === 'access' && <AccessControlTab />}
               </>
             )}
           </div>

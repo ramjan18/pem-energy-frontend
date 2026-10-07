@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTheme } from '../context/ThemeContext';
 
-export default function Pagination({ currentPage, totalPages, onPageChange, itemsPerPage, totalItems }) {
+export default function Pagination({ currentPage, totalPages, onPageChange, itemsPerPage, totalItems, isMobile = false }) {
   const { colors } = useTheme();
 
   const V = {
@@ -35,18 +35,15 @@ export default function Pagination({ currentPage, totalPages, onPageChange, item
   };
 
   const pageNumbers = getPageNumbers();
-  const startItem = (currentPage - 1) * itemsPerPage + 1;
-  const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+  const startItem = totalItems === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const endItem = totalItems === 0 ? 0 : Math.min(currentPage * itemsPerPage, totalItems);
 
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      gap: '12px',
-      marginTop: '20px',
-      '@media (max-width: 640px)': {
-        gap: '8px',
-      }
+      gap: isMobile ? '8px' : '12px',
+      marginTop: '20px'
     }}>
       {/* Info Text */}
       <div style={{

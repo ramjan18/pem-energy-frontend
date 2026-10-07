@@ -81,6 +81,7 @@ export const authAPI = {
   updateUser: (userId, userData) => makeRequest(`/auth/users/${userId}`, 'PUT', userData),
   
   deleteUser: (userId) => makeRequest(`/auth/users/${userId}`, 'DELETE'),
+  updateUserPermissions: (userId, permissions) => makeRequest(`/auth/users/${userId}/permissions`, 'PUT', { permissions }),
 };
 
 // Meter endpoints
@@ -93,6 +94,7 @@ export const meterAPI = {
   },
   
   getMeterById: (meterId) => makeRequest(`/meters/${meterId}`, 'GET'),
+  getMeterHistory: (meterId) => makeRequest(`/meters/${meterId}/history`, 'GET'),
   
   updateMeter: (meterId, meterData) => makeRequest(`/meters/${meterId}`, 'PUT', meterData),
   

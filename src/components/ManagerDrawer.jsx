@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { MdFlashOn, MdDescription, MdDeleteOutline, MdPeople, MdFileDownload, MdMenu, MdAssignment, MdBolt } from 'react-icons/md';
+import { MdFlashOn, MdDescription, MdDeleteOutline, MdPeople, MdFileDownload, MdMenu, MdAssignment, MdBolt, MdManageAccounts } from 'react-icons/md';
 
-export default function ManagerDrawer({ activeTab, onTabChange, onLogout, username, onDrawerStateChange }) {
+export default function ManagerDrawer({ activeTab, onTabChange, onLogout, username, onDrawerStateChange, availableTabs, portalLabel = 'Manager Portal' }) {
   const { theme, toggleTheme, colors } = useTheme();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -42,14 +42,17 @@ export default function ManagerDrawer({ activeTab, onTabChange, onLogout, userna
     fontMono: "'JetBrains Mono', monospace",
   };
 
-  const MENU_ITEMS = [
+  const ALL_MENU_ITEMS = [
     { id: 'live', label: 'Live Dashboard', icon: MdBolt },
+    { id: 'mf', label: 'MF', icon: MdAssignment },
     { id: 'records', label: 'Records', icon: MdDescription },
     { id: 'pending', label: 'Pending', icon: MdAssignment },
     { id: 'deleted', label: 'Deleted', icon: MdDeleteOutline },
     { id: 'users', label: 'Users', icon: MdPeople },
+    { id: 'access', label: 'Access Control', icon: MdManageAccounts },
     { id: 'export', label: 'Export', icon: MdFileDownload },
   ];
+  const MENU_ITEMS = availableTabs ? ALL_MENU_ITEMS.filter(item => availableTabs.includes(item.id)).map(item => item.id === 'users' && portalLabel === 'Admin Portal' ? { ...item, label: 'Create Users' } : item.id === 'access' ? { ...item, label: 'Access Control' } : item) : ALL_MENU_ITEMS;
 
   const handleMenuClick = (id) => {
     onTabChange(id);
@@ -160,7 +163,7 @@ export default function ManagerDrawer({ activeTab, onTabChange, onLogout, userna
                 fontFamily: V.fontMono,
                 marginTop: 2,
               }}>
-                Manager Portal
+                {portalLabel}
               </div>
             </div>
           </div>

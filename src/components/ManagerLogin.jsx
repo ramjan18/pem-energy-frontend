@@ -3,7 +3,7 @@ import { authAPI, tokenAPI } from '../api';
 import { FormField, PasswordInput, Input, Btn, Alert } from './UI';
 import LiveClock from './LiveClock';
 
-export default function ManagerLogin({ onBack, onLogin }) {
+export default function ManagerLogin({ onBack, onLogin, role = 'manager' }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [alert, setAlert] = useState(null);
@@ -16,21 +16,22 @@ export default function ManagerLogin({ onBack, onLogin }) {
     try {
       const response = await authAPI.login({ username, password });
       
-      if (response.success && response.data.role === 'manager') {
+      if (response.success && response.data.role === role) {
         // Store token
         tokenAPI.setToken(response.data.token);
         
         // Login user
         onLogin({
-          type: 'manager',
+          type: role,
           id: response.data.id,
           username: response.data.username,
           email: response.data.email,
           role: response.data.role,
+          permissions: response.data.permissions || [],
           token: response.data.token,
         });
-      } else if (response.success && response.data.role !== 'manager') {
-        setAlert({ msg: 'Access denied. This login is for managers only.', type: 'error' });
+      } else if (response.success) {
+        setAlert({ msg: `Access denied. This login is for ${role}s only.`, type: 'error' });
       } else {
         setAlert({ msg: response.message || 'Login failed', type: 'error' });
       }
@@ -51,7 +52,7 @@ export default function ManagerLogin({ onBack, onLogin }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 32 }}>
           <div style={{ width: 54, height: 54, background: '#111', border: '2px solid #2563EB', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>🛡️</div>
           <div>
-            <h2 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px' }}>Manager Login</h2>
+            <h2 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px' }}>{role === 'admin' ? 'Admin Login' : 'Manager Login'}</h2>
             <p style={{ color: '#555', fontSize: 13, fontFamily: 'var(--font-mono)' }}>Access administrative functions</p>
           </div>
         </div>
@@ -65,7 +66,7 @@ export default function ManagerLogin({ onBack, onLogin }) {
           <FormField label="Password">
             <PasswordInput placeholder="Enter Password" value={password} onChange={e => setPassword(e.target.value)} disabled={loading} />
           </FormField>
-          <Btn type="submit" disabled={loading}>{loading ? 'Logging in...' : 'Login as Manager'}</Btn>
+          <Btn type="submit" disabled={loading}>{loading ? 'Logging in...' : `Login as ${role === 'admin' ? 'Admin' : 'Manager'}`}</Btn>
         </form>
         {alert && <Alert message={alert.msg} type={alert.type} onDismiss={() => setAlert(null)} />}
       </div>
