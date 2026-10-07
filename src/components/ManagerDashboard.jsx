@@ -245,6 +245,8 @@ function TopHeader({ title, subtitle, onLogout, isMobileDrawerOpen }) {
     }
   };
 
+  const today = new Date().toISOString().split('T')[0];
+
   return (
     <div style={styles.container}>
       <div style={styles.leftSection}>

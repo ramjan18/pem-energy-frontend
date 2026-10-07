@@ -4,7 +4,7 @@ import { TopHeader, Alert, FormField, Input, Btn } from './UI';
 import {  MdShowChart, MdSettingsInputComponent } from 'react-icons/md';
 import { MdBolt } from "react-icons/md";
 import { MdWbSunny, MdWbTwilight, MdNightlight } from 'react-icons/md';
-import { MdChevronLeft, MdChevronRight, MdHistory, MdShare, MdClose } from 'react-icons/md';
+import { MdChevronLeft, MdChevronRight, MdHistory, MdShare, MdClose } from 'react-icons/md'; 
 import LiveClock from './LiveClock';
 const SECTION_CONFIG = {
   'SMRT': { icon: MdBolt, color: '#4169E1', label: 'SMRT' },
